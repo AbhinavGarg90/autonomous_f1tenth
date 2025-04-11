@@ -10,6 +10,7 @@ import math
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped, Quaternion
 from nav_msgs.msg import OccupancyGrid, MapMetaData
+from std_msgs.msg import Int8MultiArray, MultiArrayDimension
 
 class OccupancyGridMapping:
     def __init__(self, width, height, resolution, origin_x, origin_y):
@@ -27,12 +28,12 @@ class OccupancyGridMapping:
         self.log_odds = np.zeros((height, width), dtype=np.float32)
 
         # Log odds update parameters:
-        self.l_occ = math.log(0.7 / 0.3)   # update for an occupied cell
+        self.l_occ = math.log(0.7 / 0.3)   # update for an occupied cell = p/1-p 0.847
         self.l_free = math.log(0.3 / 0.7)  # update for a free cell
         self.l_min = -5.0 
         self.l_max =  5.0  
 
-    def world_to_map(self, x, y):
+    def world_to_map(self, x, y): # double check the column and row order
         """ Convert world coordinates (x, y) into grid indices (i, j). """
         j = int((x - self.origin_x) / self.resolution)
         i = int((y - self.origin_y) / self.resolution)
@@ -72,20 +73,27 @@ class OccupancyGridMapping:
         """ Update the occupancy grid using the robot's current pose and a LIDAR scan. """
         rx, ry, rtheta = robot_pose
 
-        # Retrieve scan parameters
+        # Retrieve the minimum angle of the scan (the starting angle of the scan arc)
         angle_min = scan.angle_min
+        # Retrieve the angular difference between consecutive laser beams in the scan
         angle_increment = scan.angle_increment
+        # Convert the list of range measurements from the LaserScan into a NumPy array for easier manipulation
         ranges = np.array(scan.ranges)
+        # Determine the number of laser beams in the scan data
         num_beams = len(ranges)
+        # Compute an array of angles corresponding to each laser beam in the scan,
+        # starting at angle_min and increasing by angle_increment for each beam.
         angles = angle_min + np.arange(num_beams) * angle_increment
 
+        # Iterate through each laser beam in the scan
         for i in range(num_beams):
+            # Get the range measurement for the current beam
             r = ranges[i]
             # Skip invalid measurements
-            if np.isinf(r) or np.isnan(r):
+            if np.isinf(r) or np.isnan(r): # can also limit to max of the lidar
                 continue
 
-            # Compute the beam's angle in the world frame
+            # Convert the beam angle from the sensor frame to the world frame by adding the robot's orientation
             beam_angle = rtheta + angles[i]
 
             # Compute end point of the beam in world coordinates
@@ -208,6 +216,35 @@ class OccupancyGridMappingNode:
         self.map_msg.data = prob_map.flatten().tolist()
         self.map_pub.publish(self.map_msg)
 
+        # Create an Int8MultiArray message object to hold the 2D occupancy grid map.
+        array_msg = Int8MultiArray()
+
+        # Define the first dimension (rows) for the 2D layout.
+        dim1 = MultiArrayDimension()
+        dim1.label = "rows"                     # Label the dimension as "rows" for clarity.
+        dim1.size = prob_map.shape[0]           # The size of this dimension is the number of rows in the probability map.
+        # The stride is the total number of elements in the map, which is rows*cols (i.e., jump to the next "row" block).
+        dim1.stride = prob_map.shape[0] * prob_map.shape[1]  
+
+        # Define the second dimension (cols) for the 2D layout.
+        dim2 = MultiArrayDimension()
+        dim2.label = "cols"                     # Label the dimension as "cols" for clarity.
+        dim2.size = prob_map.shape[1]           # The size of this dimension is the number of columns in the probability map.
+        dim2.stride = prob_map.shape[1]         # The stride here is the number of elements per row (i.e., the number of columns).
+
+        # Set the layout of the multi-array by assigning the dimensions in order (first rows, then columns).
+        array_msg.layout.dim = [dim1, dim2]
+
+        # Since our data begins at the start of the flattened array, we set it to 0.
+        array_msg.layout.data_offset = 0
+
+        # Convert the 2D probability map (a NumPy array) into a 1D list using row-major order.
+        array_msg.data = prob_map.flatten().tolist()
+
+        # Publish the complete Int8MultiArray message which now contains the 2D occupancy grid in a flattened format.
+        self.array_pub.publish(array_msg)
+
+
 def main():
     rospy.init_node('occupancy_grid_mapping_node', anonymous=True)
     ogm_node = OccupancyGridMappingNode()
@@ -216,3 +253,15 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+# def int8multiarray_to_2d(array_msg):
+#     # Extract the number of rows 
+#     rows = array_msg.layout.dim[0].size
+#     # Extract the number of columns
+#     cols = array_msg.layout.dim[1].size
+#     # Convert into a NumPy array.
+#     flat_data = np.array(array_msg.data, dtype=np.int8)
+#     # Reshape the flat array into a 2D array
+#     grid = flat_data.reshape((rows, cols))
+#     return grid
