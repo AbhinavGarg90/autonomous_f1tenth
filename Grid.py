@@ -33,6 +33,10 @@ class OccupancyGridMapping:
         self.l_min = -5.0 
         self.l_max =  5.0  
 
+        # Initialize the occupancy grid publisher
+        # This will publish the occupancy grid as an Int8MultiArray message.
+        self.array_pub = rospy.Publisher('/occupancy_grid', Int8MultiArray, queue_size=1)
+
     def world_to_map(self, x, y): # double check the column and row order
         """ Convert world coordinates (x, y) into grid indices (i, j). """
         j = int((x - self.origin_x) / self.resolution)
