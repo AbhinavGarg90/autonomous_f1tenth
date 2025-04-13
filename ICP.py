@@ -167,6 +167,7 @@ def icp(old_scan, new_scan, max_iterations=100, tolerance=1e-6):
     R_final, t_final = point_to_point_transform(old_scan, src) #get transform between our best estimate and initial
     return R_final, t_final, src
 
+'''
 def run_ICP():
 
     # Initialize ROS node and LIDAR
@@ -221,6 +222,70 @@ def run_ICP():
         publish_transform([rotation, translation])
 
         # Move to next scan
+        old_scan = new_scan
+        new_scan = get_lidar_data()
+
+'''
+def run_ICP():
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import time
+
+    rospy.init_node('lidar_realtime_plot')
+    old_scan = get_lidar_data()
+    new_scan = get_lidar_data()
+
+    # Initialize plot
+    plt.ion()
+    fig, ax = plt.subplots()
+    ax.set_aspect('equal')
+    ax.set_xlim(-20, 20)
+    ax.set_ylim(-20, 20)
+    line, = ax.plot([], [], 'b.-')
+
+    # Orientation arrow
+    arrow = patches.FancyArrow(0, 0, 0.5, 0, width=0.2, color='red')
+    ax.add_patch(arrow)
+
+    # Pose state
+    position = np.array([0.0, 0.0])
+    theta = 0.0
+    x_history = [0.0]
+    y_history = [0.0]
+
+    while not rospy.is_shutdown():
+        predicted_scan = old_scan
+        rotation, translation, closest_new = icp(predicted_scan, new_scan)
+
+        # Pose update
+        delta_theta = np.arctan2(rotation[1, 0], rotation[0, 0])
+        theta += delta_theta
+        R_global = np.array([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta),  np.cos(theta)]
+        ])
+        global_translation = R_global @ translation
+        position += global_translation
+
+        x_history.append(position[0])
+        y_history.append(position[1])
+
+        # Update plot
+        line.set_data(x_history, y_history)
+
+        # Update arrow
+        arrow.remove()
+        arrow_length = 1.0
+        arrow_dx = arrow_length * np.cos(theta)
+        arrow_dy = arrow_length * np.sin(theta)
+        arrow = patches.FancyArrow(position[0], position[1], arrow_dx, arrow_dy, width=0.3, color='red')
+        ax.add_patch(arrow)
+
+        plt.draw()
+        plt.pause(0.01)
+
+        publish_transform([rotation, translation])
+
         old_scan = new_scan
         new_scan = get_lidar_data()
 
