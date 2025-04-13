@@ -4,6 +4,7 @@ import rospy
 import numpy as np
 from sensor_msgs.msg import LaserScan
 import matplotlib.pyplot as plt
+from vicon_bridge import get_pos_vicon
 import time
 
 
@@ -243,15 +244,25 @@ def run_ICP():
     ax.set_ylim(-20, 20)
     line, = ax.plot([], [], 'b.-')
 
+
+
+    master = mavutil.mavlink_connection('udpin:0.0.0.0:10086')
+    vicondata = get_pos_vicon(master)
+    while vicondata is not None:
+        vicondata = get_pos_vicon(master)
+    x_gt_0, y_gt_0, yaw_gt_0 = vicondata
+
+    # Pose state
+    position = np.array([x_gt_0, y_gt_0])
+    theta = yaw_gt_0
+    x_history = [position[0]]
+    y_history = [position[1]]
+
     # Orientation arrow
     arrow = patches.FancyArrow(0, 0, 0.5, 0, width=0.2, color='red')
     ax.add_patch(arrow)
 
-    # Pose state
-    position = np.array([0.0, 0.0])
-    theta = 0.0
-    x_history = [0.0]
-    y_history = [0.0]
+    arrow_gt = patches.FancyArrow(0, 0, 0.5, 0, width=0.2, color='green')
 
     while not rospy.is_shutdown():
         predicted_scan = old_scan
@@ -276,10 +287,18 @@ def run_ICP():
         # Update arrow
         arrow.remove()
         arrow_length = 1.0
-        arrow_dx = arrow_length * np.cos(theta)
-        arrow_dy = arrow_length * np.sin(theta)
-        arrow = patches.FancyArrow(position[0], position[1], arrow_dx, arrow_dy, width=0.3, color='red')
+        arrow_dx = arrow_length * np.cos(theta - yaw_gt_0)
+        arrow_dy = arrow_length * np.sin(theta - yaw_gt_0)
+        arrow = patches.FancyArrow(position[0] - x_gt_0, position[1] - y_gt_0, arrow_dx, arrow_dy, width=0.3, color='red')
         ax.add_patch(arrow)
+
+        x_gt, y_gt, yaw_gt = get_pos_vicon(master)
+        arrow_gt.remove()
+        arrow_gt_dx = arrow_length * np.cos(yaw_gt)
+        arrow_gt_dy = arrow_length * np.sin(yaw_gt)
+        arrow_gt = patches.FacnyArrow(x_gt, y_gt, arrow_gt_dx, arrow_gt_dy, width=0.3, color='green')
+        ax.add_patch(arrow_gt)
+
 
         plt.draw()
         plt.pause(0.01)
