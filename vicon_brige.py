@@ -14,21 +14,16 @@ def pi_2_pi(angle):
     return angle
 
 def get_pos_vicon(master):
-    rospy.init_node('vicon_bridge', anonymous=True)
-
-
     data = Float64MultiArray()
     data.data = [0, ] * (9 + 2 + 4 + 1)
 
     data_path = Float64MultiArray()
     data_path.data = [0, ] * 4
 
-    while not rospy.is_shutdown():
-
     msg = master.recv_match(blocking=False)
 
     if not msg:
-        continue
+        return None
 
     if msg.get_type() == 'LOCAL_POSITION_NED_COV':
         data.data[0] = msg.x / 1000.
@@ -84,7 +79,7 @@ def get_pos_vicon(master):
         print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
         print("\n")
         return x_new, y_new, yaw_new
-    return None 
+    return None
 
 if __name__ == '__main__':
     main()

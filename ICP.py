@@ -6,6 +6,9 @@ from sensor_msgs.msg import LaserScan
 import matplotlib.pyplot as plt
 from vicon_bridge import get_pos_vicon
 import time
+from pymavlink import mavutil
+import sys, os
+from std_msgs.msg import Float64MultiArray
 
 
 pose = {
@@ -248,7 +251,7 @@ def run_ICP():
 
     master = mavutil.mavlink_connection('udpin:0.0.0.0:10086')
     vicondata = get_pos_vicon(master)
-    while vicondata is not None:
+    while vicondata is None:
         vicondata = get_pos_vicon(master)
     x_gt_0, y_gt_0, yaw_gt_0 = vicondata
 
@@ -263,6 +266,7 @@ def run_ICP():
     ax.add_patch(arrow)
 
     arrow_gt = patches.FancyArrow(0, 0, 0.5, 0, width=0.2, color='green')
+    ax.add_patch(arrow_gt)
 
     while not rospy.is_shutdown():
         predicted_scan = old_scan
@@ -278,8 +282,8 @@ def run_ICP():
         global_translation = R_global @ translation
         position += global_translation
 
-        x_history.append(position[0])
-        y_history.append(position[1])
+        x_history.append(position[0] - x_gt_0)
+        y_history.append(position[1] - y_gt_0)
 
         # Update plot
         line.set_data(x_history, y_history)
@@ -292,12 +296,14 @@ def run_ICP():
         arrow = patches.FancyArrow(position[0] - x_gt_0, position[1] - y_gt_0, arrow_dx, arrow_dy, width=0.3, color='red')
         ax.add_patch(arrow)
 
-        x_gt, y_gt, yaw_gt = get_pos_vicon(master)
-        arrow_gt.remove()
-        arrow_gt_dx = arrow_length * np.cos(yaw_gt)
-        arrow_gt_dy = arrow_length * np.sin(yaw_gt)
-        arrow_gt = patches.FacnyArrow(x_gt, y_gt, arrow_gt_dx, arrow_gt_dy, width=0.3, color='green')
-        ax.add_patch(arrow_gt)
+        vicondata = get_pos_vicon(master)
+        if vicondata is not None:
+            x_gt, y_gt, yaw_gt = vicondata
+            arrow_gt.remove()
+            arrow_gt_dx = arrow_length * np.cos(yaw_gt - yaw_gt_0)
+            arrow_gt_dy = arrow_length * np.sin(yaw_gt - yaw_gt_0)
+            arrow_gt = patches.FancyArrow(x_gt - x_gt_0, y_gt - y_gt_0, arrow_gt_dx, arrow_gt_dy, width=0.3, color='green')
+            ax.add_patch(arrow_gt)
 
 
         plt.draw()
