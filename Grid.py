@@ -3,7 +3,6 @@
 # based on LaserScan data and the robot's pose. The pose is assumed to be provided
 # by another module (e.g. an ICP-SLAM or EKF-SLAM node).
 
-
 import rospy
 import numpy as np
 import math
@@ -11,6 +10,7 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped, Quaternion
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import Int8MultiArray, MultiArrayDimension
+
 
 class OccupancyGridMapping:
     def __init__(self, width, height, resolution, origin_x, origin_y):
@@ -29,7 +29,7 @@ class OccupancyGridMapping:
 
         # Log odds update parameters:
         self.l_occ = math.log(0.7 / 0.3)   # update for an occupied cell = p/1-p 0.847
-        self.l_free = math.log(0.3 / 0.7)  # update for a free cell
+        self.l_free = math.log(0.3 / 0.7)  # update for a free cell = p/1-p -0.847
         self.l_min = -5.0 
         self.l_max =  5.0  
 
@@ -114,37 +114,43 @@ class OccupancyGridMapping:
             # Update all cells along the beam as free (except the final cell)
             for (cell_i, cell_j) in cells[:-1]:
                 if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
+                    # Add the log-odds update for free space (self.l_free is negative)
+                    # This decreases the log odds, moving the cell's occupancy probability closer to 0 (free)
                     self.log_odds[cell_i, cell_j] += self.l_free
-                    # Clamp the value
                     self.log_odds[cell_i, cell_j] = max(self.l_min, self.log_odds[cell_i, cell_j])
 
             # Update the hit cell (last cell) as occupied
             if cells:
                 cell_i, cell_j = cells[-1]
                 if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
+                    # Add the log-odds update for an occupied cell (self.l_occ is positive)
+                    # This increases the log odds, pushing the occupancy probability closer to 1 (occupied)
                     self.log_odds[cell_i, cell_j] += self.l_occ
                     self.log_odds[cell_i, cell_j] = min(self.l_max, self.log_odds[cell_i, cell_j])
 
     def get_probability_map(self):
         """ Convert the log odds grid to a probability map scaled to [0, 100] (integer values)."""
         prob = 1 - 1 / (1 + np.exp(self.log_odds))
-        prob_scaled = (prob * 100).astype(np.int8)
+        prob_scaled = (prob * 100).astype(np.int8)  # Scale to [0, 100]
+        binary = (prob > 0.5).astype(np.int8)
         return prob_scaled
 
-# logic behind log odds:
+
 # log odds = log(p/(1-p))
 # where p is the probability of occupancy
 # p = 0.5 -> log odds = 0
 # p = 0.7 -> log odds = log(0.7/(1-0.7)) = log(2.333) = 0.847
 # p = 0.3 -> log odds = log(0.3/(1-0.3)) = log(0.428) = -0.847
-# The log odds are clamped to a range of [-5, 5] to avoid overflow and underflow issues.
-# The log odds are updated based on the LIDAR scan data and the robot's pose.
-# The occupancy grid is represented as a 2D numpy array of log odds values.
-# The occupancy grid is updated using the Bresenham's line algorithm to determine the cells
+# A log-odds value of 0 represents 50% occupancy (uncertainty).
+# Negative log-odds indicate lower occupancy probability (cell likely free).
+# Positive log-odds indicate higher occupancy probability (cell likely occupied).
+
 # When a laser beam passes through a cell we update that cell by adding a value self.l_free (which is negative).
 # When the laser beam hits an obstacle we update that cell by adding a value self.l_occ (which is positive).
 # The occupancy grid is then converted to a probability map using the logistic function.
 # The probability map is scaled to [0, 100] for the OccupancyGrid message.
+
+
 
 class OccupancyGridMappingNode:
     def __init__(self):
@@ -162,11 +168,12 @@ class OccupancyGridMappingNode:
         self.robot_pose = None  # Will be updated from the /robot_pose topic - from RISHI
 
         # Subscribers
-        rospy.Subscriber('/robot_pose', PoseStamped, self.pose_callback)
         rospy.Subscriber('/scan', LaserScan, self.scan_callback)
 
-        # Publisher for the occupancy grid (nav_msgs/OccupancyGrid)
+        # Create a publisher for the OccupancyGrid message used by RViz (nav_msgs/OccupancyGrid).
         self.map_pub = rospy.Publisher('/map', OccupancyGrid, queue_size=1)
+        # Create another publisher for the Int8MultiArray message for alternative visualization.
+        self.array_pub = rospy.Publisher('/occupancy_grid', Int8MultiArray, queue_size=1)
 
         # Set up the OccupancyGrid message meta data
         self.map_msg = OccupancyGrid()
@@ -178,15 +185,6 @@ class OccupancyGridMappingNode:
         # The origin of the map is defined as a Pose (we only set x and y here)
         self.map_msg.info.origin.position.x = self.origin_x
         self.map_msg.info.origin.position.y = self.origin_y
-
-    def pose_callback(self, msg):
-        """
-        Update the current robot pose from a PoseStamped message. - RISHI needs to publish this
-        """
-        x = msg.pose.position.x
-        y = msg.pose.position.y
-        theta = self.quaternion_to_yaw(msg.pose.orientation)
-        self.robot_pose = (x, y, theta)
 
     def quaternion_to_yaw(self, q):
         """
