@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sensor_msgs.msg import LaserScan
 
-def get_lidar_data():
-        msg = rospy.wait_for_message('/car_1/scan', LaserScan)
+def get_lidar_data(topic):
+        msg = rospy.wait_for_message(topic, LaserScan)
 
         angles = np.arange(msg.angle_min, msg.angle_max, msg.angle_increment)
         ranges = np.array(msg.ranges)
@@ -19,7 +19,7 @@ def get_lidar_data():
         # Convert polar to Cartesian
         x = ranges * np.cos(angles)
         y = ranges * np.sin(angles)
-        return x,y
+        return np.array([(xi, yi) for xi,yi in zip(x,y)])
 
 
 def main():
@@ -37,7 +37,7 @@ def main():
     ax.grid(True)
 
     while not rospy.is_shutdown():
-        x, y = get_lidar_data()
+        x, y = zip(*get_lidar_data())
         scatter.set_offsets(np.c_[x, y])
         ax.set_xlim(np.min(x)-1, np.max(x)+1)
         ax.set_ylim(np.min(y)-1, np.max(y)+1)
