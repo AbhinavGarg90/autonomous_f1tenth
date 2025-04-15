@@ -2,6 +2,7 @@ from lidar_polled import get_lidar_data
 from ICP import ICPLocalizer
 from live_plotter import LivePlotter
 import rospy
+import numpy as np
 
 sim = True
 rospy.init_node("icp_runner")
@@ -23,11 +24,12 @@ icp.initialize(lidar_data)
 plotter = LivePlotter(gt_pose)
 
 rate = rospy.Rate(10)
+prev_lidar_data = get_lidar_data(lidar_topic)
 while not rospy.is_shutdown():
     lidar_data = get_lidar_data(lidar_topic)
-    gt_pose = gtpose_tracker.get_pose()
     est_pose = icp.update(lidar_data)
 
+    gt_pose = gtpose_tracker.get_pose()
     plotter.update(est_pose, gt_pose)
 
     rate.sleep()

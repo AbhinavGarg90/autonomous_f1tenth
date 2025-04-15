@@ -19,7 +19,7 @@ def get_lidar_data(topic):
         # Convert polar to Cartesian
         x = ranges * np.cos(angles)
         y = ranges * np.sin(angles)
-        return np.array([(xi, yi) for xi,yi in zip(x,y)])
+        return np.array(list(zip(x, y)))
 
 
 def main():
@@ -35,9 +35,13 @@ def main():
     ax.set_xlim(-10, 10)
     ax.set_ylim(-10, 10)
     ax.grid(True)
+    sim = True
+    lidar_topic = '/car_1/scan' if sim else 'scan'
 
     while not rospy.is_shutdown():
-        x, y = zip(*get_lidar_data())
+        ldata = get_lidar_data(lidar_topic)
+        x = [xi for xi, _ in ldata]
+        y = [yi for _, yi in ldata]
         scatter.set_offsets(np.c_[x, y])
         ax.set_xlim(np.min(x)-1, np.max(x)+1)
         ax.set_ylim(np.min(y)-1, np.max(y)+1)

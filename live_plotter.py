@@ -26,11 +26,6 @@ class LivePlotter:
         est_x, est_y, est_theta = est_pose
         gt_x, gt_y, gt_theta = gt_pose
 
-        # Adjust ground truth pose to the origin
-        est_x -= self.origin_gt_pose[0]
-        est_y -= self.origin_gt_pose[1]
-        est_theta -= self.origin_gt_pose[2]
-
         # Adjust gt to origin
         gt_x -= self.origin_gt_pose[0]
         gt_y -= self.origin_gt_pose[1]

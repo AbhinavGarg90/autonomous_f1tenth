@@ -18,14 +18,13 @@ class ICPLocalizer:
     def update(self, new_scan):
         rotation, translation, _ = self.icp(self.old_scan, new_scan)
         delta_theta = np.arctan2(rotation[1, 0], rotation[0, 0])
-        self.theta += delta_theta
 
         R_global = np.array([
             [np.cos(self.theta), -np.sin(self.theta)],
             [np.sin(self.theta),  np.cos(self.theta)]
         ])
-        global_translation = R_global @ translation
-        self.position += global_translation
+        self.theta -= delta_theta
+        self.position -= R_global @ translation
 
         self.x_history.append(self.position[0])
         self.y_history.append(self.position[1])
