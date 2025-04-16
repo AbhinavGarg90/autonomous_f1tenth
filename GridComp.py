@@ -7,17 +7,18 @@ from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import Int8MultiArray, MultiArrayDimension
 
 
+# All indices are either world coordinates (_wc) or grid grid coordiantes (_gc)
 class OccupancyGridMapping:
-    def __init__(self, width, height, resolution, origin_x, origin_y):
+    def __init__(self, width_wc=20, height_wc=20, resolution=0.1, origin_x_wc=10, origin_y_wc=10):
 
-        self.width = width
-        self.height = height
-        self.resolution = resolution
-        self.origin_x = origin_x
-        self.origin_y = origin_y
+        self.width_gc = int(width_wc / resolution)
+        self.height_gc = int(height_wc / resolution)
+        self.resolution = resolution # world to grid
+        self.origin_x_gc = int(origin_x_wc / resolution) 
+        self.origin_y_gc = int(origin_y_wc / resolution)
 
         # Initialize the grid in log odds (0 means 50% probability)
-        self.log_odds = np.zeros((height, width), dtype=np.float32)
+        self.log_odds = np.zeros((self.height_gc, self.width_gc), dtype=np.float32)
 
         # Log odds update parameters:
         self.l_occ = math.log(0.7 / 0.3)   # update for an occupied cell = p/1-p 0.847
@@ -25,42 +26,11 @@ class OccupancyGridMapping:
         self.l_min = -5.0 
         self.l_max =  5.0  
 
-        # Initialize the occupancy grid publisher
-        # This will publish the occupancy grid as an Int8MultiArray message.
-        self.array_pub = rospy.Publisher('/occupancy_grid', Int8MultiArray, queue_size=1)
-
-        # Grid parameters 
-        self.resolution = rospy.get_param("~resolution", 0.1)  # each cell is 0.1 m
-        self.width = rospy.get_param("~grid_width", 200)
-        self.height = rospy.get_param("~grid_height", 200)
-        # Move origin so that (0,0) of the world is near the center
-        self.origin_x = rospy.get_param("~origin_x", -10.0)
-        self.origin_y = rospy.get_param("~origin_y", -10.0)
-        
-        self.robot_pose = None  
-
-        # Subscribers
-        rospy.Subscriber('/scan', LaserScan, self.scan_callback)
-        # Create a publisher for the OccupancyGrid message used by RViz (nav_msgs/OccupancyGrid).
-        self.map_pub = rospy.Publisher('/map', OccupancyGrid, queue_size=1)
-        # Create another publisher for the Int8MultiArray message for alternative visualization.
-        self.array_pub = rospy.Publisher('/occupancy_grid', Int8MultiArray, queue_size=1)
-
-        # Set up the OccupancyGrid message meta data
-        self.map_msg = OccupancyGrid()
-        self.map_msg.header.frame_id = "map"
-        self.map_msg.info = MapMetaData()
-        self.map_msg.info.resolution = self.resolution
-        self.map_msg.info.width = self.width
-        self.map_msg.info.height = self.height
-        # The origin of the map is defined as a Pose (we only set x and y here)
-        self.map_msg.info.origin.position.x = self.origin_x
-        self.map_msg.info.origin.position.y = self.origin_y
-
-    def world_to_map(self, x, y): # double check the column and row order
+    def world_to_map(self, x_wc, y_wc): # double check the column and row order
         """ Convert world coordinates (x, y) into grid indices (i, j). """
-        j = int((x - self.origin_x) / self.resolution)
-        i = int((y - self.origin_y) / self.resolution)
+        i = int(x_wc / self.resolution) + self.origin_x_gc
+        j = int(y_wc / self.resolution) + self.origin_y_gc
+        assert i >= 0 and j >= 0
         return i, j
 
     def bresenham2D(self, r0, c0, r1, c1):
@@ -132,11 +102,10 @@ class OccupancyGridMapping:
             end_i, end_j = self.world_to_map(x_end, y_end)
 
             # Get cells along the beam using Bresenham's algorithm
-            cells = self.bresenham2D(robot_j, robot_i, end_j, end_i)
-
+            cells = self.bresenham2D(robot_j, robot_i, end_i, end_j)
             # Update all cells along the beam as free (except the final cell)
             for (cell_i, cell_j) in cells[:-1]:
-                if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
+                if 0 <= cell_i < self.height_gc and 0 <= cell_j < self.width_gc:
                     # This decreases the log odds, moving the cell's occupancy probability closer to 0 (free)
                     self.log_odds[cell_i, cell_j] += self.l_free
                     self.log_odds[cell_i, cell_j] = max(self.l_min, self.log_odds[cell_i, cell_j])
@@ -144,7 +113,7 @@ class OccupancyGridMapping:
             # Update the hit cell (last cell) as occupied
             if cells:
                 cell_i, cell_j = cells[-1]
-                if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
+                if 0 <= cell_i < self.height_gc and 0 <= cell_j < self.width_gc:
                     # This increases the log odds, pushing the occupancy probability closer to 1 (occupied)
                     self.log_odds[cell_i, cell_j] += self.l_occ
                     self.log_odds[cell_i, cell_j] = min(self.l_max, self.log_odds[cell_i, cell_j])
@@ -158,45 +127,9 @@ class OccupancyGridMapping:
     
     def update_map(self, x, y, theta, scan_msg):
         self.robot_pose = (x, y, theta)
-        self.ogm.update(self.robot_pose, scan_msg)
-        self.publish_map(scan_msg.header.stamp)
+        self.update(self.robot_pose, scan_msg)
 
-    def publish_map(self, stamp):
-        """ Publish the occupancy grid as a nav_msgs/OccupancyGrid message."""
-        self.map_msg.header.stamp = stamp
-        # Get the probability map and flatten to a list (row-major order)
-        prob_map = self.ogm.get_probability_map()
-        self.map_msg.data = prob_map.flatten().tolist()
-        self.map_pub.publish(self.map_msg)
 
-        # Create an Int8MultiArray message object to hold the 2D occupancy grid map.
-        array_msg = Int8MultiArray()
-
-        # Define the first dimension (rows) for the 2D layout.
-        dim1 = MultiArrayDimension()
-        dim1.label = "rows"                     
-        dim1.size = prob_map.shape[0]         
-        # The stride is the total number of elements in the map, which is rows*cols (i.e., jump to the next "row" block).
-        dim1.stride = prob_map.shape[0] * prob_map.shape[1]  
-
-        # Define the second dimension (cols) for the 2D layout.
-        dim2 = MultiArrayDimension()
-        dim2.label = "cols"                    
-        dim2.size = prob_map.shape[1]
-        # The stride here is the number of elements per row (i.e., the number of columns).         
-        dim2.stride = prob_map.shape[1]        
-
-        # Set the layout of the multi-array by assigning the dimensions in order (first rows, then columns).
-        array_msg.layout.dim = [dim1, dim2]
-
-        # Since our data begins at the start of the flattened array, we set it to 0.
-        array_msg.layout.data_offset = 0
-
-        # Convert the 2D probability map (a NumPy array) into a 1D list using row-major order.
-        array_msg.data = prob_map.flatten().tolist()
-
-        # Publish the complete Int8MultiArray message which now contains the 2D occupancy grid in a flattened format.
-        self.array_pub.publish(array_msg)
 
 def main():
     rospy.init_node('occupancy_grid_mapping_node', anonymous=True)
