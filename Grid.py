@@ -155,8 +155,8 @@ class OccupancyGridMapping:
 class OccupancyGridMappingNode:
     def __init__(self):
         self.resolution = rospy.get_param("~resolution", 0.1)  # meters 
-        self.width = rospy.get_param("~grid_width", 5000)
-        self.height = rospy.get_param("~grid_height", 5000)
+        self.width = rospy.get_param("~grid_width", 500)
+        self.height = rospy.get_param("~grid_height", 500)
         # need to figure out the origin_x and origin_y
         # currently set so that the robot is at (0,0) in the center of the map
         self.origin_x = rospy.get_param("~origin_x", -125.0)
