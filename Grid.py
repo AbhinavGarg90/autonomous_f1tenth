@@ -14,10 +14,6 @@ from std_msgs.msg import Int8MultiArray, MultiArrayDimension
 
 class OccupancyGridMapping:
     def __init__(self, width, height, resolution, origin_x, origin_y):
-        """ 
-        Initializing the occupancy grid mapping module. width, height: 5000 x 5000 cells.
-        origin_x, origin_y: World coordinates corresponding to grid[0,0]
-        """
         self.width = width
         self.height = height
         self.resolution = resolution
@@ -43,41 +39,46 @@ class OccupancyGridMapping:
         i = int((y - self.origin_y) / self.resolution)
         return i, j
 
-    def bresenham2D(self, x0, y0, x1, y1):
-        """ Bresenham's Line Algorithm: Compute the grid cells along a line from (x0, y0) to (x1, y1)."""
-        # Initialize starting point
-        x0 = int(round(x0))
-        y0 = int(round(y0))
-        x1 = int(round(x1))
-        y1 = int(round(y1))
-        dx = abs(x1 - x0)
-        dy = abs(y1 - y0)
-        # to determine if we move forwards or backwards in x and y
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx - dy
+    def bresenham2D(self, r0, c0, r1, c1):
+        """
+        Bresenham's Line Algorithm in terms of row/col indices.
+        Returns a list of (row, col) cells along the line from (r0, c0) to (r1, c1).
+        """
+        r0 = int(round(r0))
+        c0 = int(round(c0))
+        r1 = int(round(r1))
+        c1 = int(round(c1))
+
+        dr = abs(r1 - r0)
+        dc = abs(c1 - c0)
+        sr = 1 if r0 < r1 else -1
+        sc = 1 if c0 < c1 else -1
+
+        err = dr - dc
+        r = r0
+        c = c0
 
         cells = []
+
         while True:
-            cells.append((y0, x0))  # (row, col)
-            if x0 == x1 and y0 == y1:
+            cells.append((r, c))
+            if r == r1 and c == c1:
                 break
-            # The doubled error (e2) helps decide if you need to take an extra step sideways or up/down 
-            # to stay as close as possible to the ideal straight line between two points
             e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x0 += sx
-            if e2 < dx:
-                err += dx
-                y0 += sy
+            if e2 > -dc:
+                err -= dc
+                r += sr
+            if e2 < dr:
+                err += dr
+                c += sc
+
         return cells
 
     def update(self, robot_pose, scan):
         """ Update the occupancy grid using the robot's current pose and a LIDAR scan. """
         rx, ry, rtheta = robot_pose
 
-        # Retrieve the minimum angle of the scan (the starting angle of the scan arc)
+        # starting angle
         angle_min = scan.angle_min
         # Retrieve the angular difference between consecutive laser beams in the scan
         angle_increment = scan.angle_increment
@@ -86,15 +87,13 @@ class OccupancyGridMapping:
         # Determine the number of laser beams in the scan data
         num_beams = len(ranges)
         # Compute an array of angles corresponding to each laser beam in the scan,
-        # starting at angle_min and increasing by angle_increment for each beam.
         angles = angle_min + np.arange(num_beams) * angle_increment
 
-        # Iterate through each laser beam in the scan
+
         for i in range(num_beams):
-            # Get the range measurement for the current beam
             r = ranges[i]
-            # Skip invalid measurements
-            if np.isinf(r) or np.isnan(r): # can also limit to max of the lidar
+            # can also limit to max of the lidar
+            if np.isinf(r) or np.isnan(r): 
                 continue
 
             # Convert the beam angle from the sensor frame to the world frame by adding the robot's orientation
@@ -114,7 +113,6 @@ class OccupancyGridMapping:
             # Update all cells along the beam as free (except the final cell)
             for (cell_i, cell_j) in cells[:-1]:
                 if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
-                    # Add the log-odds update for free space (self.l_free is negative)
                     # This decreases the log odds, moving the cell's occupancy probability closer to 0 (free)
                     self.log_odds[cell_i, cell_j] += self.l_free
                     self.log_odds[cell_i, cell_j] = max(self.l_min, self.log_odds[cell_i, cell_j])
@@ -123,7 +121,6 @@ class OccupancyGridMapping:
             if cells:
                 cell_i, cell_j = cells[-1]
                 if 0 <= cell_i < self.height and 0 <= cell_j < self.width:
-                    # Add the log-odds update for an occupied cell (self.l_occ is positive)
                     # This increases the log odds, pushing the occupancy probability closer to 1 (occupied)
                     self.log_odds[cell_i, cell_j] += self.l_occ
                     self.log_odds[cell_i, cell_j] = min(self.l_max, self.log_odds[cell_i, cell_j])
@@ -154,22 +151,21 @@ class OccupancyGridMapping:
 
 class OccupancyGridMappingNode:
     def __init__(self):
-        self.resolution = rospy.get_param("~resolution", 0.1)  # meters 
-        self.width = rospy.get_param("~grid_width", 500)
-        self.height = rospy.get_param("~grid_height", 500)
-        # need to figure out the origin_x and origin_y
-        # currently set so that the robot is at (0,0) in the center of the map
-        self.origin_x = rospy.get_param("~origin_x", -125.0)
-        self.origin_y = rospy.get_param("~origin_y", -125.0)
+        # Grid parameters 
+        self.resolution = rospy.get_param("~resolution", 0.1)  # each cell is 0.1 m
+        self.width = rospy.get_param("~grid_width", 200)
+        self.height = rospy.get_param("~grid_height", 200)
+        # Move origin so that (0,0) of the world is near the center
+        self.origin_x = rospy.get_param("~origin_x", -10.0)
+        self.origin_y = rospy.get_param("~origin_y", -10.0)
 
         # Create the occupancy grid mapping object.
         self.ogm = OccupancyGridMapping(self.width, self.height, self.resolution, self.origin_x, self.origin_y)
 
-        self.robot_pose = None  # Will be updated from the /robot_pose topic - from RISHI
+        self.robot_pose = None  
 
         # Subscribers
         rospy.Subscriber('/scan', LaserScan, self.scan_callback)
-
         # Create a publisher for the OccupancyGrid message used by RViz (nav_msgs/OccupancyGrid).
         self.map_pub = rospy.Publisher('/map', OccupancyGrid, queue_size=1)
         # Create another publisher for the Int8MultiArray message for alternative visualization.
@@ -185,33 +181,14 @@ class OccupancyGridMappingNode:
         # The origin of the map is defined as a Pose (we only set x and y here)
         self.map_msg.info.origin.position.x = self.origin_x
         self.map_msg.info.origin.position.y = self.origin_y
-
-    def quaternion_to_yaw(self, q):
-        """
-        Convert a quaternion into a yaw angle.
-        """
-        # Using the standard conversion formula
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny_cosp, cosy_cosp)
-
-    def scan_callback(self, scan_msg):
-        """
-        Process an incoming LaserScan message.
-        Update the occupancy grid based on the latest robot pose and LIDAR data.
-        """
-        if self.robot_pose is None:
-            return  # We need a valid pose to update the grid
-
-        # Update the occupancy grid using the current scan and pose
+    
+    def update_map(self, x, y, theta, scan_msg):
+        self.robot_pose = (x, y, theta)
         self.ogm.update(self.robot_pose, scan_msg)
-        # Publish the updated map
         self.publish_map(scan_msg.header.stamp)
 
     def publish_map(self, stamp):
-        """
-        Publish the occupancy grid as a nav_msgs/OccupancyGrid message.
-        """
+        """ Publish the occupancy grid as a nav_msgs/OccupancyGrid message."""
         self.map_msg.header.stamp = stamp
         # Get the probability map and flatten to a list (row-major order)
         prob_map = self.ogm.get_probability_map()
@@ -223,16 +200,17 @@ class OccupancyGridMappingNode:
 
         # Define the first dimension (rows) for the 2D layout.
         dim1 = MultiArrayDimension()
-        dim1.label = "rows"                     # Label the dimension as "rows" for clarity.
-        dim1.size = prob_map.shape[0]           # The size of this dimension is the number of rows in the probability map.
+        dim1.label = "rows"                     
+        dim1.size = prob_map.shape[0]         
         # The stride is the total number of elements in the map, which is rows*cols (i.e., jump to the next "row" block).
         dim1.stride = prob_map.shape[0] * prob_map.shape[1]  
 
         # Define the second dimension (cols) for the 2D layout.
         dim2 = MultiArrayDimension()
-        dim2.label = "cols"                     # Label the dimension as "cols" for clarity.
-        dim2.size = prob_map.shape[1]           # The size of this dimension is the number of columns in the probability map.
-        dim2.stride = prob_map.shape[1]         # The stride here is the number of elements per row (i.e., the number of columns).
+        dim2.label = "cols"                    
+        dim2.size = prob_map.shape[1]
+        # The stride here is the number of elements per row (i.e., the number of columns).         
+        dim2.stride = prob_map.shape[1]        
 
         # Set the layout of the multi-array by assigning the dimensions in order (first rows, then columns).
         array_msg.layout.dim = [dim1, dim2]
@@ -267,3 +245,10 @@ if __name__ == '__main__':
 #     # Reshape the flat array into a 2D array
 #     grid = flat_data.reshape((rows, cols))
 #     return grid
+
+# node = OccupancyGridMappingNode()
+# # Suppose you read the LaserScan from your own subscription or from icp
+# scan_msg = rospy.wait_for_message('/scan', LaserScan)
+
+# x, y, theta = icp.update(...)
+# node.update_map(x, y, theta, scan_msg)
