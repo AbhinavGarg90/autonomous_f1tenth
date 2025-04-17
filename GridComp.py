@@ -30,6 +30,8 @@ class OccupancyGridMapping:
         """ Convert world coordinates (x, y) into grid indices (i, j). """
         i = int(x_wc / self.resolution) + self.origin_x_gc
         j = int(y_wc / self.resolution) + self.origin_y_gc
+        # col = int((x_wc - origin_x_wc) / res)
+        # row = int((y_wc - origin_y_wc) / res)
         assert i >= 0 and j >= 0
         return i, j
 
@@ -102,7 +104,8 @@ class OccupancyGridMapping:
             end_i, end_j = self.world_to_map(x_end, y_end)
 
             # Get cells along the beam using Bresenham's algorithm
-            cells = self.bresenham2D(robot_j, robot_i, end_i, end_j)
+            # cells = self.bresenham2D(robot_j, robot_i, end_i, end_j)
+            cells = self.bresenham2D(robot_i, robot_j, end_j, end_i) 
             # Update all cells along the beam as free (except the final cell)
             for (cell_i, cell_j) in cells[:-1]:
                 if 0 <= cell_i < self.height_gc and 0 <= cell_j < self.width_gc:
