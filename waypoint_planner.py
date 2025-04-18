@@ -1,149 +1,188 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-import rospy
+# -------------------------
+# Standalone Hybrid A* Planner Module (No ROS)
+# Author: Rahul's Team + ChatGPT Modifications
+# Description: This module implements the Hybrid A* path planning algorithm.
+#              Hybrid A* is suitable for non-holonomic vehicles (like cars)
+#              as it considers kinematic constraints during the search.
+#              It accepts a probabilistic map (2D numpy array), map metadata,
+#              and a start pose (x, y, theta). It plans a path towards a
+#              hardcoded rectangular goal region (ignoring final orientation).
+# Main Function: plan_path_to_goal_region()
+# Output: Returns a list of waypoints [(x, y, theta), ...] or None if no path found.
+# -------------------------
+
 import numpy as np
 import math
-import heapq  # Library for implementing the priority queue (min-heap) used in A*
-from nav_msgs.msg import OccupancyGrid, Path  # ROS message types for map and path
-from geometry_msgs.msg import PoseStamped, Quaternion  # ROS message type for robot pose and goal pose
-from tf.transformations import euler_from_quaternion, quaternion_from_euler  # ROS library utilities for converting between Euler angles (like yaw) and Quaternions
+import heapq  # Provides heap queue algorithm (priority queue implementation)
+import time   # Standard Python time module for timing the search
 
-# ----------------------- Utility Functions -----------------------
+# ==============================================================================
+# Configuration Section
+# ==============================================================================
+
+# ----------------------- Hardcoded Goal Region Definition -----------------------
+# Define the target rectangular area in WORLD coordinates (meters).
+# The planner succeeds if it finds a valid state (x, y, theta) where
+# the (x, y) position falls within these boundaries.
+# IMPORTANT: Ensure this region is collision-free on the map you provide!
+GOAL_X_MIN = 4.5  # Minimum X coordinate of the goal region
+GOAL_X_MAX = 5.0  # Maximum X coordinate of the goal region
+GOAL_Y_MIN = -0.5 # Minimum Y coordinate of the goal region
+GOAL_Y_MAX = 0.5  # Maximum Y coordinate of the goal region
+
+# --- Goal Orientation ---
+# Set to None to accept *any* orientation once inside the XY goal bounds.
+# Set to a specific angle (radians) to require reaching the XY bounds *and*
+# being within goal_theta_tolerance of that angle.
+GOAL_TARGET_THETA = None # MODIFIED: Set to None to ignore final orientation
+
+# --- Heuristic Calculation ---
+# Calculate the center of the goal region. The heuristic function (estimated
+# cost to goal) will aim towards this central point.
+GOAL_CENTER_X = (GOAL_X_MIN + GOAL_X_MAX) / 2.0
+GOAL_CENTER_Y = (GOAL_Y_MIN + GOAL_Y_MAX) / 2.0
+
+# ==============================================================================
+# Utility Functions (Standalone - No ROS)
+# ==============================================================================
 
 def world_to_map(x, y, origin_x, origin_y, resolution):
     """
-    Converts world coordinates (in meters, e.g., from localization) into
-    discrete grid cell indices (row, col) based on the map's metadata.
-    Required for checking cells in the occupancy grid.
+    Converts continuous world coordinates (meters) into discrete grid cell indices (row, col).
+    Args:
+        x, y (float): World coordinates.
+        origin_x, origin_y (float): World coordinates of the bottom-left corner (cell [0,0]) of the map.
+        resolution (float): Size of one grid cell in meters.
+    Returns:
+        tuple: (row, col) integer indices corresponding to the world coordinates.
+    Raises:
+        ValueError: If resolution is not positive.
     """
-    # Calculate column index (j) based on x coordinate
+    if resolution <= 0:
+        raise ValueError("Map resolution must be positive")
+    # Calculate column index based on X coordinate relative to origin
     col = int((x - origin_x) / resolution)
-    # Calculate row index (i) based on y coordinate
+    # Calculate row index based on Y coordinate relative to origin
     row = int((y - origin_y) / resolution)
     return row, col
 
 def normalize_angle(angle):
     """
-    Normalizes an angle to the range [-pi, pi] radians.
-    This ensures angles are compared consistently, avoiding issues with wrap-around
-    (e.g., 3.15 radians vs -3.13 radians being recognized as close).
-    Uses atan2(sin(angle), cos(angle)) which robustly handles all quadrants.
+    Normalizes an angle (in radians) to the range [-pi, pi].
+    Uses math.atan2(sin(a), cos(a)) for numerical stability and correctness across quadrants.
     """
     return math.atan2(math.sin(angle), math.cos(angle))
 
-# ----------------------- Hybrid A* Path Planner Class -----------------------
+# ==============================================================================
+# Hybrid A* Planner Class (Standalone - No ROS)
+# ==============================================================================
 
 class HybridAStarPlanner:
     """
     Implements the core Hybrid A* search algorithm logic.
-    It handles state expansion, collision checking, cost calculation, and path reconstruction.
+
+    Hybrid A* extends the standard A* algorithm by searching in a continuous state
+    space (x, y, theta) and using kinematically feasible motion primitives (simulated
+    car movements) as edges between states, instead of simple grid movements. It uses
+    a discrete grid map for collision checking and often for discretizing states
+    for efficient storage in visited sets.
     """
     def __init__(self, wheelbase, step_size, max_steering_angle, num_steering_angles,
                  obstacle_threshold=65, robot_length=0.4, robot_width=0.3,
-                 goal_xy_tolerance=0.2, goal_theta_tolerance=0.1,
+                 goal_xy_tolerance=0.1, # Tolerance used if comparing against a specific point (less relevant for region goal)
+                 goal_theta_tolerance=0.1, # Tolerance used ONLY if GOAL_TARGET_THETA is set
                  num_angle_bins=72, heuristic_weight=1.0):
         """
-        Initializes the Hybrid A* planner with robot parameters and planning settings.
-        Args:
-            wheelbase (float): Distance between front and rear axles (meters). Used in kinematic model.
-            step_size (float): Simulation distance for each motion primitive (meters).
-            max_steering_angle (float): Maximum steering angle (radians).
-            num_steering_angles (int): Number of discrete steering actions to generate between -max and +max.
-            obstacle_threshold (int): Occupancy grid value above which a cell is considered an obstacle (0-100).
-            robot_length (float): Length of the robot (meters) for collision checking.
-            robot_width (float): Width of the robot (meters) for collision checking.
-            goal_xy_tolerance (float): Position tolerance (meters) for reaching the goal.
-            goal_theta_tolerance (float): Orientation tolerance (radians) for reaching the goal.
-            num_angle_bins (int): How many bins to divide 360 degrees into for discrete state checking.
-            heuristic_weight (float): Multiplier for the heuristic cost (higher values favor reaching goal faster, potentially sacrificing optimality).
+        Initializes the planner with robot kinematic parameters, physical dimensions,
+        and algorithm tuning parameters.
         """
-        # --- Store Robot Kinematic & Dimension Parameters ---
-        self.WHEELBASE = wheelbase           # Distance between axles
-        self.STEP_SIZE = step_size           # Distance covered in one simulation step
-        self.MAX_STEERING = max_steering_angle # Max steering angle (radians)
-        self.NUM_STEERING_ANGLES = num_steering_angles # How many steering options (e.g., 5 = Left, SlightLeft, Straight, SlightRight, Right)
-        self.ROBOT_LENGTH = robot_length     # Robot dimension along its driving direction
-        self.ROBOT_WIDTH = robot_width       # Robot dimension perpendicular to driving direction
+        # --- Robot Kinematic Parameters (for motion simulation) ---
+        self.WHEELBASE = wheelbase           # Distance between front and rear axles (m)
+        self.STEP_SIZE = step_size           # Simulation distance per motion primitive (m)
+        self.MAX_STEERING = max_steering_angle # Maximum steering angle (radians)
+        self.NUM_STEERING_ANGLES = num_steering_angles # Number of discrete steering actions to try
 
-        # --- Store Planning & Grid Parameters ---
-        self.OBSTACLE_THRESHOLD = obstacle_threshold # Grid cells with value >= this are obstacles
-        self.GOAL_XY_TOL = goal_xy_tolerance     # Acceptable distance error to goal position
-        self.GOAL_THETA_TOL = goal_theta_tolerance # Acceptable angle error to goal orientation
-        self.NUM_ANGLE_BINS = num_angle_bins     # Discretization level for orientation
-        self.ANGLE_BIN_SIZE = 2.0 * math.pi / num_angle_bins # Size of each angle bin in radians
-        self.HEURISTIC_WEIGHT = heuristic_weight # Weight applied to the heuristic calculation
+        # --- Robot Dimension Parameters (for collision checking) ---
+        self.ROBOT_LENGTH = robot_length     # Robot length (m) along driving direction
+        self.ROBOT_WIDTH = robot_width       # Robot width (m) perpendicular to driving direction
 
-        # --- Precompute Steering Angles ---
-        # Generate a list of discrete steering angles from -MAX_STEERING to +MAX_STEERING
+        # --- Planning & Grid Parameters ---
+        self.OBSTACLE_THRESHOLD = obstacle_threshold # Occupancy grid value >= this is an obstacle
+        self.GOAL_XY_TOL = goal_xy_tolerance     # Positional tolerance (less critical for region goal)
+        self.GOAL_THETA_TOL = goal_theta_tolerance # Angular tolerance (used if GOAL_TARGET_THETA is defined)
+        self.NUM_ANGLE_BINS = num_angle_bins     # Discretization level for orientation in visited set
+        self.ANGLE_BIN_SIZE = 2.0 * math.pi / num_angle_bins # Size of each angle bin (radians)
+        self.HEURISTIC_WEIGHT = heuristic_weight # Multiplier for the heuristic cost (Weighted A*)
+
+        # --- Precompute Discrete Steering Actions ---
+        # Creates a list of steering angles from -max to +max to simulate
         if self.NUM_STEERING_ANGLES > 1:
             self.steering_angles = np.linspace(-self.MAX_STEERING, self.MAX_STEERING, self.NUM_STEERING_ANGLES)
         else:
-            self.steering_angles = [0.0] # If only 1 angle allowed, it must be straight
+            self.steering_angles = [0.0] # Only allow driving straight
 
-        # --- Precompute Robot Footprint Points (relative to robot center [0,0]) ---
-        # Used for collision checking. Define corners relative to the center.
+        # --- Precompute Robot Footprint Points (relative to robot center at [0,0]) ---
+        # Used for collision checking. Defines corners relative to the center (origin).
         half_L = self.ROBOT_LENGTH / 2.0
         half_W = self.ROBOT_WIDTH / 2.0
-        # List of (x, y) offsets from the center representing the corners
-        self.footprint_rel = [
-            (half_L, half_W), (half_L, -half_W),
-            (-half_L, -half_W), (-half_L, half_W)
-        ]
-        # Note: For more accuracy, especially with large step sizes or high resolutions,
-        # you might add more points along the edges of the footprint here.
+        self.footprint_rel = [(half_L, half_W), (half_L, -half_W), (-half_L, -half_W), (-half_L, half_W)]
 
-        # --- Map Data Storage (Initialized later by set_map) ---
-        self.map_info = None        # Will store MapMetaData object
-        self.map_width = 0          # Map width in cells
+        # --- Map Data Storage (Initialized via set_map) ---
+        self.map_data = None        # 2D NumPy array of occupancy values
+        self.map_resolution = 0.0   # Meters per cell
+        self.map_origin_x = 0.0     # World X coordinate of cell [0,0]'s corner
+        self.map_origin_y = 0.0     # World Y coordinate of cell [0,0]'s corner
         self.map_height = 0         # Map height in cells
-        self.map_resolution = 0     # Map resolution in meters/cell
-        self.map_origin_x = 0       # World X coordinate of grid cell (0,0)
-        self.map_origin_y = 0       # World Y coordinate of grid cell (0,0)
-        self.map_data = None        # Will store 2D numpy array of occupancy values
+        self.map_width = 0          # Map width in cells
+        print("Hybrid A* Planner Initialized (Standalone). Call set_map() before planning.")
 
-    def set_map(self, occupancy_grid_msg):
-        """
-        Callback function to receive and store the occupancy grid map data from ROS.
-        This needs to be called before planning can start.
-        """
-        rospy.loginfo("Hybrid A* Planner: Received new map.")
-        # Store the metadata (resolution, width, height, origin)
-        self.map_info = occupancy_grid_msg.info
-        self.map_width = self.map_info.width
-        self.map_height = self.map_info.height
-        self.map_resolution = self.map_info.resolution
-        self.map_origin_x = self.map_info.origin.position.x
-        self.map_origin_y = self.map_info.origin.position.y
-        # Convert the 1D list of map data into a 2D numpy array (row-major order)
-        self.map_data = np.array(occupancy_grid_msg.data).reshape((self.map_height, self.map_width))
+    def set_map(self, map_data_array, resolution, origin_x, origin_y):
+        """Stores the provided map data and metadata required for planning."""
+        # Input validation
+        if not isinstance(map_data_array, np.ndarray) or map_data_array.ndim != 2:
+            raise ValueError("map_data_array must be a 2D NumPy array.")
+        if resolution <= 0:
+             raise ValueError("Resolution must be positive.")
+
+        self.map_data = map_data_array
+        self.map_resolution = resolution
+        self.map_origin_x = origin_x
+        self.map_origin_y = origin_y
+        self.map_height, self.map_width = map_data_array.shape # Get dimensions from array
+        print(f"Map Set: Dimensions={self.map_width}x{self.map_height}, Resolution={self.map_resolution:.3f}, Origin=({self.map_origin_x:.2f}, {self.map_origin_y:.2f})")
 
     def _discretize_state(self, x, y, theta):
         """
-        Converts a continuous state (x, y, theta) into a discrete tuple
-        (grid_row, grid_col, angle_bin_index).
-        This is used as the key in dictionaries (cost_so_far, came_from) to
-        efficiently track visited states and costs.
+        Converts a continuous state (x, y, theta) into a discrete tuple representation
+        (grid_row, grid_col, angle_bin_index). This discrete state is used as a key
+        in dictionaries (cost_so_far, came_from) to efficiently track which approximate
+        states have been visited and their associated costs/parents. This avoids issues
+        with floating-point comparisons and significantly reduces redundant exploration.
         """
-        # Convert world x, y to grid row, col
         row, col = world_to_map(x, y, self.map_origin_x, self.map_origin_y, self.map_resolution)
-        # Normalize the angle and calculate which bin it falls into
-        # Adding pi shifts range to [0, 2pi] before dividing, ensuring positive bin index
+        # Normalize theta, shift to [0, 2pi), divide by bin size, take integer part, modulo N
         theta_bin = int((normalize_angle(theta) + math.pi) / self.ANGLE_BIN_SIZE) % self.NUM_ANGLE_BINS
         return row, col, theta_bin
 
     def _simulate_motion(self, x, y, theta, steering_angle):
         """
-        Simulates the robot's movement for one STEP_SIZE distance using the
-        kinematic bicycle model with a given steering angle.
-        Returns the resulting continuous state (next_x, next_y, next_theta).
+        Simulates the robot's movement for one 'STEP_SIZE' distance using the
+        kinematic bicycle model for a given 'steering_angle'. This generates a potential
+        next continuous state (a motion primitive).
+        Returns:
+            tuple: (next_x, next_y, next_theta) representing the continuous state after the step.
         """
-        # Ensure steering angle is within limits (optional sanity check)
+        # Ensure steering angle is within physical limits
         steering_angle = np.clip(steering_angle, -self.MAX_STEERING, self.MAX_STEERING)
 
-        # Handle straight motion (or very small steering angle to avoid division by zero)
+        # Handle straight motion (or near-zero steering to avoid numerical issues)
         if abs(steering_angle) < 1e-6:
             next_x = x + self.STEP_SIZE * math.cos(theta)
             next_y = y + self.STEP_SIZE * math.sin(theta)
-            next_theta = theta # Orientation doesn't change
+            next_theta = theta # Orientation does not change
         else:
             # Apply bicycle model formulas for turning motion
             turn_radius = self.WHEELBASE / math.tan(steering_angle) # Calculate turning radius
@@ -152,7 +191,7 @@ class HybridAStarPlanner:
             # Calculate the final orientation after turning
             next_theta = normalize_angle(theta + beta)
             # Calculate the change in x and y based on the circular path segment
-            # This form avoids calculating the center of the circle explicitly
+            # (Alternative formulations exist, e.g., calculating circle center first)
             next_x = x + turn_radius * (math.sin(next_theta) - math.sin(theta))
             next_y = y - turn_radius * (math.cos(next_theta) - math.cos(theta))
 
@@ -160,18 +199,17 @@ class HybridAStarPlanner:
 
     def _is_collision_free(self, x, y, theta):
         """
-        **MODIFIED FOR BETTER COLLISION CHECKING**
         Checks if the robot's footprint at the continuous state (x, y, theta)
-        collides with any obstacles in the occupancy grid.
-        Uses a bounding box approach around the rotated footprint.
-        Returns True if collision-free, False otherwise.
+        collides with any obstacles in the occupancy grid. This is a critical step.
+        Uses a bounding box approach for efficiency (safer than corners, less accurate
+        than polygon rasterization).
+        Returns:
+            bool: True if the state is collision-free, False otherwise.
         """
-        if self.map_data is None: return False # Cannot check without map
-
-        cos_t = math.cos(theta)
-        sin_t = math.sin(theta)
+        if self.map_data is None: return False # Cannot check without a map
 
         # --- 1. Calculate World Coordinates of Footprint Corners ---
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
         corners_world = []
         for corner_x_rel, corner_y_rel in self.footprint_rel:
             # Rotate and translate the relative corner points to world frame
@@ -181,350 +219,279 @@ class HybridAStarPlanner:
 
         # --- 2. Calculate Grid Cell Indices of Footprint Corners ---
         corners_grid = []
-        for wx, wy in corners_world:
-            row, col = world_to_map(wx, wy, self.map_origin_x, self.map_origin_y, self.map_resolution)
-            corners_grid.append((row, col))
+        try:
+            for wx, wy in corners_world:
+                 row, col = world_to_map(wx, wy, self.map_origin_x, self.map_origin_y, self.map_resolution)
+                 corners_grid.append((row, col))
+        except ValueError: # Handle potential errors from world_to_map if resolution is bad
+            print("Error in world_to_map during collision check.")
+            return False
 
-        # --- 3. Get Bounding Box of Footprint in Grid Coordinates ---
-        # Find the minimum and maximum row and column indices covered by the corners
+        # --- 3. Simple Out-of-Bounds Check (Any Corner Outside Map) ---
+        # If any corner maps to a cell outside the grid dimensions, it's invalid.
+        for r, c in corners_grid:
+             if not (0 <= r < self.map_height and 0 <= c < self.map_width):
+                  return False # Collision (out of bounds)
+
+        # --- 4. Bounding Box Check ---
+        # Find the min/max row/col indices covered by the corners.
         min_r = min(r for r, c in corners_grid)
         max_r = max(r for r, c in corners_grid)
         min_c = min(c for r, c in corners_grid)
         max_c = max(c for r, c in corners_grid)
 
-        # --- 4. Check All Cells Within the Bounding Box ---
-        # Clip the bounding box to ensure it stays within map boundaries
+        # Clip bounds just in case (should be redundant after corner check, but safe)
         min_r_clipped = max(0, min_r)
         max_r_clipped = min(self.map_height - 1, max_r)
         min_c_clipped = max(0, min_c)
         max_c_clipped = min(self.map_width - 1, max_c)
 
-        # Iterate through every grid cell within the clipped bounding box
+        # --- 5. Check Occupancy of Cells within Bounding Box ---
+        # Iterate through every grid cell within the clipped bounding box.
+        # This is an approximation - it checks more cells than the exact footprint might cover.
         for r in range(min_r_clipped, max_r_clipped + 1):
             for c in range(min_c_clipped, max_c_clipped + 1):
-                # Check if the cell is outside the actual map bounds (redundant due to clipping, but safe)
-                # if not (0 <= r < self.map_height and 0 <= c < self.map_width):
-                #     return False # Part of footprint check area is outside map -> collision
+                # Check the occupancy value from the map data
+                # Treat unknown (-1) as occupied for safety.
+                if self.map_data[r, c] >= self.OBSTACLE_THRESHOLD or self.map_data[r, c] == -1:
+                    return False # Collision detected within the bounding box
 
-                # Check if the occupancy value indicates an obstacle (or unknown space treated as obstacle)
-                if self.map_data[r, c] >= self.OBSTACLE_THRESHOLD or self.map_data[r,c] == -1:
-                    return False # Collision detected
-
-        # If no collisions were found in any cell within the bounding box, the state is collision-free
+        # If no collisions were found after checking all cells in the bbox, consider state safe.
         return True
-        # Note: This bounding box check is safer than just checking corners, but can be
-        # conservative (might report collision even if only the corners of the bbox hit
-        # obstacles, but the actual robot footprint doesn't). For perfect accuracy,
-        # polygon rasterization (e.g., using skimage.draw.polygon) is needed.
 
-    def _heuristic(self, x, y, goal_x, goal_y):
+    def _heuristic(self, x, y):
         """
-        Calculates the heuristic cost (estimated cost from current state to goal).
-        Uses simple Euclidean distance multiplied by a weight.
-        This guides the A* search towards the goal position.
+        Calculates the heuristic cost (h_score): an estimate of the cost remaining
+        from the current state (x, y) to the goal. It guides the search.
+        Here, we use simple Euclidean distance to the *center* of the goal region,
+        multiplied by a weighting factor. This heuristic ignores obstacles and kinematics,
+        making it admissible (it doesn't overestimate the true cost) if weight is 1.0.
         """
-        # np.hypot(dx, dy) is equivalent to sqrt(dx^2 + dy^2)
-        return self.HEURISTIC_WEIGHT * np.hypot(goal_x - x, goal_y - y)
+        dx = GOAL_CENTER_X - x
+        dy = GOAL_CENTER_Y - y
+        # np.hypot calculates sqrt(dx^2 + dy^2)
+        return self.HEURISTIC_WEIGHT * np.hypot(dx, dy)
 
     def reconstruct_path(self, came_from, current_discrete, current_state):
         """
-        Rebuilds the path by backtracking from the goal state using the came_from dictionary.
+        Rebuilds the path by backtracking from the goal state using the 'came_from'
+        dictionary, which stores the parent of each visited state.
         Args:
             came_from (dict): Maps {child_discrete_state: (parent_discrete_state, parent_continuous_state)}
             current_discrete: The final discrete state that met goal criteria.
             current_state: The final continuous state corresponding to current_discrete.
         Returns:
-            list: A list of continuous (x, y, theta) state tuples representing the path from start to goal.
+            list: A list of continuous (x, y, theta) state tuples from start to goal.
         """
-        path = [current_state] # Start the path list with the goal state
-        # Trace back predecessors until the start state is reached
+        path = [current_state] # Start the list with the final state
+        # Follow the chain of parents back to the start
         while current_discrete in came_from:
-            # Get the parent's discrete state and continuous state from the dictionary
+            # Retrieve the parent's discrete and continuous states
             parent_discrete, parent_state = came_from[current_discrete]
-            # Add the parent's continuous state to the path
+            # Prepend the parent state to the path list
             path.append(parent_state)
-            # Move to the parent for the next iteration
+            # Update current states for the next iteration
             current_discrete = parent_discrete
-            current_state = parent_state # Keep track of continuous state for potential start check
+            # current_state = parent_state # Not strictly needed inside loop anymore
 
-        # The path is built goal-to-start, so reverse it before returning
-        return path[::-1]
+        return path[::-1] # Reverse the list to get start -> goal order
 
-    def plan_path(self, start, goal):
+    # --- Main Planning Function ---
+    def find_path_internal(self, start):
         """
-        Main Hybrid A* path planning function. Executes the search.
+        Internal implementation of the Hybrid A* search algorithm.
         Args:
             start (tuple): Continuous start state (x, y, theta).
-            goal (tuple): Continuous goal state (x, y, theta).
         Returns:
-            list or None: A list of continuous (x, y, theta) waypoints if a path is found, otherwise None.
+            list or None: List of waypoints [(x, y, theta), ...] or None if no path found.
         """
-        # --- Initialization ---
+        # --- 1. Pre-computation & Sanity Checks ---
         if self.map_data is None:
-            rospy.logerr("Hybrid A* Planner: Map data not set!")
+            print("Error: Map data not set. Call set_map() before planning.")
             return None
+        if not isinstance(start, tuple) or len(start) != 3:
+            raise ValueError("Start state must be a tuple (x, y, theta)")
+        if not self._is_collision_free(*start):
+             print(f"Error: Start state {start} is in collision!")
+             return None
 
-        # Priority queue (min-heap). Stores tuples: (f_score, continuous_state)
-        # f_score = g_score + h_score (estimated total cost)
+        # --- 2. Initialization ---
+        # --- Priority Queue (Open Set) ---
+        # Stores nodes to be explored, prioritized by f_score.
+        # Uses heapq module (min-heap). Lower f_score = higher priority.
+        # Elements are tuples: (f_score, continuous_state_tuple)
         open_set = []
-        start_discrete = self._discretize_state(*start) # Discrete version of start state
-        start_heuristic = self._heuristic(start[0], start[1], goal[0], goal[1])
-        # Push the start node onto the heap. g_score is 0, f_score = 0 + heuristic.
-        heapq.heappush(open_set, (start_heuristic, start))
+        start_discrete = self._discretize_state(*start)
+        start_g_score = 0.0 # Cost from start to start is zero
+        start_h_score = self._heuristic(start[0], start[1]) # Estimated cost from start to goal
+        start_f_score = start_g_score + start_h_score # A* formula: f = g + h
+        heapq.heappush(open_set, (start_f_score, start))
 
-        # came_from dictionary: Stores the path predecessors.
-        # Key: child_discrete_state, Value: (parent_discrete_state, parent_continuous_state)
+        # --- came_from dictionary ---
+        # Stores the path predecessors for reconstructing the path later.
+        # Key: discrete_state tuple (row, col, bin) of the child node
+        # Value: tuple (parent_discrete_state, parent_continuous_state)
         came_from = {}
 
-        # cost_so_far dictionary (g_score): Stores the actual cost (path length) from start
-        # to a given discrete state. Key: discrete_state, Value: cost
-        cost_so_far = {start_discrete: 0.0}
+        # --- cost_so_far dictionary (g_score) ---
+        # Stores the minimum cost found so far to reach a specific discrete state from the start.
+        # Key: discrete_state tuple (row, col, bin)
+        # Value: float (cost, typically path length or time)
+        cost_so_far = {start_discrete: start_g_score}
 
-        # Store goal theta separately for quick access in the loop
-        goal_theta = goal[2]
+        print("Hybrid A* Planning started...")
+        start_time = time.time()
+        nodes_expanded = 0 # Counter for search statistics
 
-        rospy.loginfo("Hybrid A*: Planning started...")
-        start_time = rospy.Time.now()
+        # --- 3. Main A* Search Loop ---
+        # Continue as long as there are nodes in the open set to explore
+        while open_set:
+            nodes_expanded += 1
 
-        # --- Main A* Search Loop ---
-        while open_set: # While there are nodes to explore
-            # Pop the node with the lowest f_score from the priority queue
+            # --- 3a. Select Best Node ---
+            # Pop the node with the lowest f_score from the priority queue (heap).
+            # This node is the most promising one to explore next according to f = g + h.
             current_f_score, current_state = heapq.heappop(open_set)
-            # Get discrete version for dictionary lookups
+
+            # --- 3b. Check for Stale Node (Optimization) ---
+            # It's possible to have multiple entries for the same discrete state in the heap
+            # if we found a shorter path to it later. This check ensures we only process
+            # a discrete state using the lowest cost found so far for it.
             current_discrete = self._discretize_state(*current_state)
-
-            # Optimization: If the cost to reach this state (current_g) is already higher
-            # than a previously found cost, skip it (this handles stale entries in the heap).
             current_g_score = cost_so_far.get(current_discrete, float('inf'))
-            # Check if the f_score from heap matches calculated f_score based on current g_score
-            # Add small epsilon for float comparison safety
-            expected_f_score = current_g_score + self._heuristic(current_state[0], current_state[1], goal[0], goal[1])
-            if current_f_score > expected_f_score + 1e-5:
-                continue # Stale node, a better path was found already
+            # Recalculate f_score based on the *actual* current g_score stored.
+            # If the f_score popped from heap is significantly larger, it means the popped
+            # node corresponds to an older, longer path to this state. Skip it.
+            expected_f_score = current_g_score + self._heuristic(current_state[0], current_state[1])
+            if current_f_score > expected_f_score + 1e-5: # Add small tolerance for float errors
+                continue # This node is stale, ignore it.
 
-            # --- Goal Check ---
-            # Check if the current state is within the position and orientation tolerances of the goal.
-            position_error = np.hypot(current_state[0] - goal[0], current_state[1] - goal[1])
-            orientation_error = abs(normalize_angle(current_state[2] - goal_theta))
+            # --- 3c. Goal Check ---
+            # Check if the current continuous state's (x, y) position is inside the target region.
+            current_x, current_y, current_theta = current_state
+            is_in_goal_xy = (GOAL_X_MIN <= current_x <= GOAL_X_MAX and
+                             GOAL_Y_MIN <= current_y <= GOAL_Y_MAX)
 
-            if (position_error < self.GOAL_XY_TOL and orientation_error < self.GOAL_THETA_TOL):
-                # Goal reached! Reconstruct and return the path.
-                rospy.loginfo(f"Hybrid A*: Goal reached! Planning time: {(rospy.Time.now() - start_time).to_sec():.3f}s")
-                return self.reconstruct_path(came_from, current_discrete, current_state)
+            # MODIFIED: Only check XY position. Orientation is ignored as GOAL_TARGET_THETA is None.
+            if is_in_goal_xy:
+                 # Optional: Check if GOAL_TARGET_THETA is set and check orientation
+                 # goal_orientation_met = True
+                 # if GOAL_TARGET_THETA is not None:
+                 #     orientation_error = abs(normalize_angle(current_theta - GOAL_TARGET_THETA))
+                 #     goal_orientation_met = (orientation_error < self.GOAL_THETA_TOL)
+                 # if goal_orientation_met: # Only succeed if orientation is also met (if required)
+                 #      ...
 
-            # --- Expand Neighbors ---
-            # Iterate through all possible steering actions
+                 # Succeed if XY position is within the defined goal region bounds.
+                 print(f"Hybrid A*: Goal region reached! Planning time: {time.time() - start_time:.3f}s ({nodes_expanded} nodes)")
+                 # Reconstruct the path from the 'came_from' map and return it.
+                 return self.reconstruct_path(came_from, current_discrete, current_state)
+
+
+            # --- 3d. Expand Neighbors (Generate Successors) ---
+            # If not at the goal, explore possible next states by applying motion primitives.
             for steering in self.steering_angles:
-                # Simulate motion for one step with the current steering angle
+                # --- i. Simulate Motion ---
+                # Apply the kinematic model for the current steering angle.
                 next_state = self._simulate_motion(*current_state, steering)
 
-                # Check if the resulting state is valid (collision-free)
-                # *** This now uses the improved collision check ***
+                # --- ii. Check Collision ---
+                # Ensure the simulated next state is physically valid (not colliding).
                 if not self._is_collision_free(*next_state):
-                    continue # Skip this steering action, it leads to collision
+                    continue # Skip this steering action, path is blocked.
 
-                # Calculate the cost (g_score) to reach this next_state
-                # Cost is the cost to reach the current state plus the cost of this step (step_size)
+                # --- iii. Calculate Cost (g_score) ---
+                # The cost to reach the neighbor ('next_state') is the cost to reach the
+                # 'current_state' plus the cost of the motion primitive (step size).
                 new_cost = current_g_score + self.STEP_SIZE
 
-                # Get the discrete version of the next state for dictionary checks
+                # --- iv. Check if Path is Better ---
+                # Get the discrete representation of the neighbor state.
                 next_discrete = self._discretize_state(*next_state)
-
-                # Check if this path to the neighbor is better than any previous path found
+                # Compare the new cost to the best cost found *so far* to reach this 'next_discrete' state.
                 if new_cost < cost_so_far.get(next_discrete, float('inf')):
-                    # Update the cost to reach this neighbor
+                    # This is a better path! Update records.
+
+                    # Update the minimum cost found to reach 'next_discrete'.
                     cost_so_far[next_discrete] = new_cost
-                    # Calculate the priority (f_score) for the neighbor node
-                    priority = new_cost + self._heuristic(next_state[0], next_state[1], goal[0], goal[1])
-                    # Add the neighbor to the open set (priority queue)
+
+                    # Calculate the f_score (priority) for this neighbor node: f = new_g + h
+                    heuristic_cost = self._heuristic(next_state[0], next_state[1])
+                    priority = new_cost + heuristic_cost
+
+                    # Add the neighbor node to the priority queue to be explored later.
                     heapq.heappush(open_set, (priority, next_state))
-                    # Record that we reached next_discrete from current_state
+
+                    # Record that we reached 'next_discrete' from 'current_state'.
+                    # Store the parent's discrete and continuous state for path reconstruction.
                     came_from[next_discrete] = (current_discrete, current_state)
 
-        # If the open set becomes empty and we haven't returned a path, it means no path was found
-        rospy.logwarn(f"Hybrid A*: Failed to find path after {(rospy.Time.now() - start_time).to_sec():.3f}s.")
+        # --- 4. No Path Found ---
+        # If the open set becomes empty, it means we explored all reachable states
+        # without finding a path to the goal region.
+        print(f"Warning: Hybrid A* failed to find path after {time.time() - start_time:.3f}s ({nodes_expanded} nodes).")
+        return None # Return None to indicate failure
+
+# ==============================================================================
+# Main Planning Function Interface (Use this function from other scripts)
+# ==============================================================================
+
+# --- Create a default planner instance ---
+# This can be reused across multiple calls if the parameters don't change.
+# Consider making parameters configurable via function arguments if needed.
+default_planner = HybridAStarPlanner(
+    wheelbase=0.3, step_size=0.1, max_steering_angle=0.6, num_steering_angles=5,
+    robot_length=0.4, robot_width=0.3, obstacle_threshold=65, heuristic_weight=1.5
+)
+
+def plan_path_to_goal_region(start_pose, occupancy_map, resolution, origin_x, origin_y, planner=default_planner):
+    """
+    High-level function to plan a path using the Hybrid A* planner towards
+    the hardcoded GOAL region. This function acts as the main interface.
+
+    Args:
+        start_pose (tuple): Current robot pose (x, y, theta) in meters and radians (world frame).
+        occupancy_map (numpy.ndarray): 2D numpy array representing the grid map (0-100 or -1).
+        resolution (float): Map resolution in meters per cell.
+        origin_x (float): World X coordinate of the map's bottom-left corner (cell [0,0]).
+        origin_y (float): World Y coordinate of the map's bottom-left corner (cell [0,0]).
+        planner (HybridAStarPlanner, optional): An existing planner instance. Defaults to 'default_planner'.
+
+    Returns:
+        list or None: A list of waypoint tuples [(x, y, theta), ...] if a path is found,
+                      otherwise None. This list is the direct output for the controller.
+    """
+    print("\n--- New Planning Request ---")
+    if planner is None:
+        print("Error: Planner instance is not provided.")
         return None
 
-# ----------------------- ROS Node Wrapper Class -----------------------
-
-class HybridAStarNode:
-    """
-    Manages the ROS interactions for the Hybrid A* planner.
-    Handles subscriptions, publishing, and triggering the planner logic.
-    """
-    def __init__(self):
-        """
-        Initializes the ROS node, sets up the planner, subscribers, and publisher.
-        """
-        rospy.init_node('hybrid_astar_node')
-        rospy.loginfo("Hybrid A* Node Initializing...")
-
-        # --- Create the Planner Instance ---
-        # TODO: Consider using ROS parameters for these values instead of hardcoding
-        #       e.g., wheelbase = rospy.get_param("~wheelbase", 0.3)
-        self.planner = HybridAStarPlanner(
-            wheelbase=0.3,          # Example value, adjust for your robot
-            step_size=0.1,          # Example value, adjust for speed/accuracy tradeoff
-            max_steering_angle=0.6, # Example value (~35 deg), adjust for your robot
-            num_steering_angles=5,  # Example value (L, SL, S, SR, R)
-            robot_length=0.4,       # Example value, measure your robot
-            robot_width=0.3,        # Example value, measure your robot
-            heuristic_weight=1.5    # Example value, tune for performance
-            # Other parameters use defaults defined in HybridAStarPlanner.__init__
-        )
-
-        # --- Internal State Variable ---
-        # Stores the latest PoseStamped message received from the localization node
-        self.current_pose = None
-        self.map_received = False # Flag to ensure map is ready before planning
-
-        # --- ROS Subscribers ---
-        # Subscribe to the OccupancyGrid map topic
-        map_topic = "/map" # Default map topic
-        rospy.Subscriber(map_topic, OccupancyGrid, self.map_callback)
-        # Subscribe to the robot's pose estimate (published by ICP/localization node)
-        pose_topic = "/robot_pose" # Assumed topic name for localization output
-        rospy.Subscriber(pose_topic, PoseStamped, self.pose_callback)
-        # Subscribe to the goal topic (typically published by RViz's "2D Nav Goal" tool)
-        goal_topic = "/move_base_simple/goal" # Standard topic for RViz goals
-        rospy.Subscriber(goal_topic, PoseStamped, self.goal_callback)
-
-        # --- ROS Publisher ---
-        # Publisher for the calculated path
-        path_topic = "/planned_path" # Topic to publish the resulting path on
-        self.path_pub = rospy.Publisher(path_topic, Path, queue_size=1) # queue_size=1: only keep latest path
-
-        rospy.loginfo(f"Hybrid A* Node Ready. Subscribed to map:'{map_topic}', pose:'{pose_topic}', goal:'{goal_topic}'. Publishing path to:'{path_topic}'")
-
-    def map_callback(self, msg):
-        """ROS Callback: Stores the received map data in the planner instance."""
-        if self.planner:
-            self.planner.set_map(msg)
-            self.map_received = True
-
-    def pose_callback(self, msg):
-        """ROS Callback: Stores the latest robot pose estimate from localization."""
-        # --- Coordinate Frame Check ---
-        # COMMENT: It's crucial that the pose received here is in the same
-        #          coordinate frame as the map. Ideally, check msg.header.frame_id
-        #          against self.planner.map_info.header.frame_id.
-        # HOW TO CHECK:
-        # 1. Use `rostopic info /robot_pose` and `rostopic info /map` to see the message types.
-        # 2. Use `rostopic echo /robot_pose/header/frame_id` to see the frame name being published for the pose.
-        # 3. Use `rostopic echo /map/header/frame_id` (or /map/info/header/frame_id depending on structure) to see the map's frame name.
-        # 4. Visualize in RViz: Add TF display and Map display. Add a Pose display subscribed to /robot_pose. See if the pose appears correctly located on the map.
-        # IF FRAMES DON'T MATCH: You *must* use the TF library (`import tf`) to look up the transform
-        #                       between the pose's frame and the map's frame and apply it to the pose
-        #                       data before using it. This is beyond the scope of this basic check comment.
-        # Basic Check (Warning Only):
-        if self.map_received and self.planner.map_info and msg.header.frame_id != self.planner.map_info.header.frame_id:
-             rospy.logwarn_throttle(10, f"Pose frame '{msg.header.frame_id}' may not match map frame '{self.planner.map_info.header.frame_id}'. Verify frames or use TF!")
-
-        self.current_pose = msg # Store the latest pose
-
-    def goal_callback(self, goal_msg):
-        """
-        ROS Callback: Triggered when a new goal is received (e.g., from RViz).
-        Initiates the path planning process using the latest map, pose, and the received goal.
-        """
-        rospy.loginfo("Hybrid A*: Received new goal request.")
-
-        # --- Pre-planning Checks ---
-        if not self.map_received or self.planner.map_data is None:
-            rospy.logwarn("Hybrid A*: Cannot plan - map not yet received or processed.")
-            return
-        if self.current_pose is None:
-            rospy.logwarn("Hybrid A*: Cannot plan - current robot pose unknown.")
-            return
-        if self.planner is None:
-             rospy.logerr("Hybrid A*: Planner object not initialized!")
-             return
-
-        # --- Coordinate Frame Check for Goal ---
-        # COMMENT: Similar to the pose check, ensure the goal is in the map frame.
-        # HOW TO CHECK: Use `rostopic echo /move_base_simple/goal/header/frame_id`. It should match the map frame. RViz usually sends goals in the frame selected in its 'Fixed Frame' setting.
-        # IF FRAMES DON'T MATCH: Use TF library to transform the goal pose into the map frame before planning.
-        map_frame = self.planner.map_info.header.frame_id
-        if goal_msg.header.frame_id != map_frame:
-             rospy.logerr(f"Goal frame '{goal_msg.header.frame_id}' does not match map frame '{map_frame}'. Cannot plan. Use TF or ensure goal is published in map frame.")
-             return
-        # Basic check for pose frame consistency (already warned in pose_callback)
-        if self.current_pose.header.frame_id != map_frame:
-             rospy.logerr(f"Current pose frame '{self.current_pose.header.frame_id}' does not match map frame '{map_frame}'. Cannot plan.")
-             return
-
-
-        # --- Extract Start State from Current Pose ---
-        start_pos = self.current_pose.pose.position
-        start_q = self.current_pose.pose.orientation
-        # Convert quaternion orientation to yaw angle (theta)
-        start_theta = euler_from_quaternion([start_q.x, start_q.y, start_q.z, start_q.w])[2]
-        # Create the start state tuple (x, y, theta)
-        start = (start_pos.x, start_pos.y, start_theta)
-
-        # --- Extract Goal State from Goal Message ---
-        goal_pos = goal_msg.pose.position
-        goal_q = goal_msg.pose.orientation
-        # Convert quaternion orientation to yaw angle (theta)
-        goal_theta = euler_from_quaternion([goal_q.x, goal_q.y, goal_q.z, goal_q.w])[2]
-        # Create the goal state tuple (x, y, theta)
-        goal = (goal_pos.x, goal_pos.y, goal_theta)
-
-        rospy.loginfo(f"Hybrid A*: Planning from Start:({start[0]:.2f}, {start[1]:.2f}, {start[2]:.2f}) to Goal:({goal[0]:.2f}, {goal[1]:.2f}, {goal[2]:.2f})")
-
-        # --- Execute the Planner ---
-        # This calls the main planning logic in the HybridAStarPlanner class
-        path_points = self.planner.plan_path(start, goal) # Returns list of (x,y,theta) tuples or None
-
-        # --- Prepare and Publish Path Message ---
-        path_msg = Path()
-        # Set the header: frame_id must match the coordinate system the path points are in (map frame)
-        path_msg.header.frame_id = map_frame # Use the verified map frame
-        path_msg.header.stamp = rospy.Time.now() # Timestamp the path generation time
-
-        if path_points: # If the planner returned a valid path
-            # Iterate through the (x, y, theta) waypoints
-            for x, y, theta in path_points:
-                # Create a PoseStamped message for each waypoint
-                pose = PoseStamped()
-                # Set the header for the individual pose (optional, but good practice)
-                pose.header.stamp = path_msg.header.stamp
-                pose.header.frame_id = path_msg.header.frame_id
-                # Set the position
-                pose.pose.position.x = x
-                pose.pose.position.y = y
-                pose.pose.position.z = 0 # Assume 2D navigation
-                # Convert the yaw angle (theta) back to a quaternion for the pose orientation
-                q = quaternion_from_euler(0, 0, theta) # Roll=0, Pitch=0, Yaw=theta
-                pose.pose.orientation = Quaternion(*q) # Unpack the quaternion elements
-                # Add the completed PoseStamped message to the Path message's list of poses
-                path_msg.poses.append(pose)
-
-            # Publish the complete Path message
-            self.path_pub.publish(path_msg)
-            rospy.loginfo("Hybrid A*: Path published with %d waypoints." % len(path_msg.poses))
-        else:
-            # If planner returned None (no path found)
-            rospy.logwarn("Hybrid A*: Failed to find a path. Publishing empty path.")
-            # Publish an empty path message - this can clear previous paths in RViz
-            self.path_pub.publish(path_msg)
-
-# ----------------------- Main Execution Block -----------------------
-
-if __name__ == '__main__':
+    # 1. Update the planner with the latest map information
+    #    This needs to be done for every planning request if the map changes.
     try:
-        # Create an instance of the ROS node class. This calls __init__().
-        node = HybridAStarNode()
-        # Enter the ROS spin loop. This keeps the node alive, processing callbacks
-        # (for map, pose, goal) until the node is shut down (e.g., Ctrl+C).
-        rospy.spin()
-    except rospy.ROSInterruptException:
-        # Catch the exception raised when ROS wants to shut down
-        rospy.loginfo("Hybrid A* Node shutting down.")
-        pass # Exit cleanly
-    except Exception as e:
-        # Catch any other unexpected errors during initialization or execution
-        rospy.logfatal(f"Unhandled exception in Hybrid A* Node: {e}")
-        import traceback
-        traceback.print_exc() # Print detailed traceback for debugging
+        planner.set_map(occupancy_map, resolution, origin_x, origin_y)
+    except ValueError as e:
+        print(f"Error setting map: {e}")
+        return None
 
+    # 2. Prepare start state (ensure theta is normalized for internal consistency)
+    start_x, start_y, start_theta = start_pose
+    normalized_start = (start_x, start_y, normalize_angle(start_theta))
+    print(f"Planning from normalized start: ({normalized_start[0]:.2f}, {normalized_start[1]:.2f}, {normalized_start[2]:.2f})")
+    print(f"Targeting Goal Region: X=[{GOAL_X_MIN:.2f},{GOAL_X_MAX:.2f}], Y=[{GOAL_Y_MIN:.2f},{GOAL_Y_MAX:.2f}]")
+    # MODIFIED: Removed the print statement about goal orientation as it's ignored
+    # if GOAL_TARGET_THETA is not None: ...
+
+    # 3. Call the internal planning method which performs the search
+    waypoints = planner.find_path_internal(normalized_start)
+
+    # 4. Return the resulting waypoints list (or None)
+    if waypoints:
+        print(f"Planning successful. Returning {len(waypoints)} waypoints.")
+    else:
+        print("Planning failed.")
+    print("--- Planning Request End ---")
+    return waypoints
+
+# Note: No `if __name__ == '__main__':` block here. This file is intended
+#       to be imported as a module into your main control script or test script.
