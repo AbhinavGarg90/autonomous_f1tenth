@@ -23,6 +23,14 @@ class ICPLocalizer:
             [np.cos(self.theta), -np.sin(self.theta)],
             [np.sin(self.theta),  np.cos(self.theta)]
         ])
+
+        if delta_theta < 0.001:
+            delta_theta = 0
+        if translation[0] < 0.001:
+            translation[0] = 0
+        if translation[1] < 0.001:
+            translation[1] = 0
+
         self.theta -= delta_theta
         self.position -= R_global @ translation
 
@@ -30,6 +38,7 @@ class ICPLocalizer:
         self.y_history.append(self.position[1])
 
         self.old_scan = new_scan
+        print(R_global @ translation, delta_theta)
         return self.position[0], self.position[1], self.theta
 
     def icp(self, old_scan, new_scan, max_iterations=100, tolerance=1e-6):
