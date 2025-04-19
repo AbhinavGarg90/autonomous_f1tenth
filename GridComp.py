@@ -9,7 +9,7 @@ from std_msgs.msg import Int8MultiArray, MultiArrayDimension
 
 # All indices are either world coordinates (_wc) or grid grid coordiantes (_gc)
 class OccupancyGridMapping:
-    def __init__(self, width_wc=20, height_wc=20, resolution=0.1, origin_x_wc=10, origin_y_wc=10):
+    def __init__(self, width_wc=60, height_wc=60, resolution=0.1, origin_x_wc=30, origin_y_wc=30):
 
         self.width_gc = int(width_wc / resolution)
         self.height_gc = int(height_wc / resolution)
@@ -26,14 +26,13 @@ class OccupancyGridMapping:
         self.l_min = -5.0 
         self.l_max =  5.0  
 
-    def world_to_map(self, x_wc, y_wc): # double check the column and row order
-        """ Convert world coordinates (x, y) into grid indices (i, j). """
-        i = int(x_wc / self.resolution) + self.origin_x_gc
-        j = int(y_wc / self.resolution) + self.origin_y_gc
-        # col = int((x_wc - origin_x_wc) / res)
-        # row = int((y_wc - origin_y_wc) / res)
-        assert i >= 0 and j >= 0
-        return i, j
+    def world_to_map(self, x_wc, y_wc):
+        # row = y,  col = x
+        row = int((y_wc - self.origin_y_wc) / self.resolution)
+        col = int((x_wc - self.origin_x_wc) / self.resolution)
+        assert 0 <= row < self.height_gc and 0 <= col < self.width_gc
+        return row, col
+
 
     def bresenham2D(self, r0, c0, r1, c1):
         """
@@ -88,9 +87,19 @@ class OccupancyGridMapping:
 
         for i in range(num_beams):
             r = ranges[i]
-            # can also limit to max of the lidar
-            if np.isinf(r) or np.isnan(r): 
+
+            if np.isnan(r):
                 continue
+
+            if r < scan.range_min:                # TOO CLOSE : discard beam for now
+                continue
+
+            if r > scan.range_max or np.isinf(r):
+                r   = scan.range_max               # cast to max range
+                hit = False                       
+            else:
+                r   = r                           # valid hit
+                hit = True
 
             # Convert the beam angle from the sensor frame to the world frame by adding the robot's orientation
             beam_angle = rtheta + angles[i]
@@ -99,29 +108,21 @@ class OccupancyGridMapping:
             x_end = rx + r * math.cos(beam_angle)
             y_end = ry + r * math.sin(beam_angle)
 
-            # Convert robot and beam endpoint to grid indices
-            robot_i, robot_j = self.world_to_map(rx, ry)
-            end_i, end_j = self.world_to_map(x_end, y_end)
-
+            r_row, r_col = self.world_to_map(rx, ry)        # robot
+            e_row, e_col = self.world_to_map(x_end, y_end)  # end of laser beam
+    
             # Get cells along the beam using Bresenham's algorithm
-            # i = x , j = y
-            # bresenham2D() expects its arguments in (row, col) order (row ≙ y, col ≙ x)
-            # cells = self.bresenham2D(robot_j, robot_i, end_i, end_j)
-            cells = self.bresenham2D(robot_i, robot_j, end_j, end_i) 
+            cells = self.bresenham2D(r_row, r_col, e_row, e_col) 
             # Update all cells along the beam as free (except the final cell)
-            for (cell_i, cell_j) in cells[:-1]:
-                if 0 <= cell_i < self.height_gc and 0 <= cell_j < self.width_gc:
-                    # This decreases the log odds, moving the cell's occupancy probability closer to 0 (free)
-                    self.log_odds[cell_i, cell_j] += self.l_free
-                    self.log_odds[cell_i, cell_j] = max(self.l_min, self.log_odds[cell_i, cell_j])
+            for row, col in (cells[:-1] if hit else cells):
+                if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
+                    self.log_odds[row, col] = max(self.l_min, self.log_odds[row, col] + self.l_free)
 
             # Update the hit cell (last cell) as occupied
-            if cells:
-                cell_i, cell_j = cells[-1]
-                if 0 <= cell_i < self.height_gc and 0 <= cell_j < self.width_gc:
-                    # This increases the log odds, pushing the occupancy probability closer to 1 (occupied)
-                    self.log_odds[cell_i, cell_j] += self.l_occ
-                    self.log_odds[cell_i, cell_j] = min(self.l_max, self.log_odds[cell_i, cell_j])
+            if hit:
+                row, col = cells[-1]
+                if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
+                    self.log_odds[row, col] = min(self.l_max, self.log_odds[row, col] + self.l_occ)
 
     def get_probability_map(self):
         """ Convert the log odds grid to a probability map scaled to [0, 100] (integer values)."""
@@ -133,7 +134,6 @@ class OccupancyGridMapping:
     def update_map(self, x, y, theta, scan_msg):
         self.robot_pose = (x, y, theta)
         self.update(self.robot_pose, scan_msg)
-
 
 
 def main():
