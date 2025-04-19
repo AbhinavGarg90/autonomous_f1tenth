@@ -16,6 +16,8 @@ class OccupancyGridMapping:
         self.resolution = resolution # world to grid
         self.origin_x_gc = int(origin_x_wc / resolution) 
         self.origin_y_gc = int(origin_y_wc / resolution)
+        self.origin_x_wc = origin_x_wc
+        self.origin_y_wc = origin_y_wc
 
         # Initialize the grid in log odds (0 means 50% probability)
         self.log_odds = np.zeros((self.height_gc, self.width_gc), dtype=np.float32)
@@ -30,8 +32,8 @@ class OccupancyGridMapping:
         # row = y,  col = x
         origin_x_wc=30
         origin_y_wc=30
-        row = int((y_wc - origin_y_wc) / self.resolution)
-        col = int((x_wc - origin_x_wc) / self.resolution)
+        row = int((y_wc + origin_y_wc) / self.resolution)
+        col = int((x_wc + origin_x_wc) / self.resolution)
         assert 0 <= row < self.height_gc and 0 <= col < self.width_gc
         return row, col
 
