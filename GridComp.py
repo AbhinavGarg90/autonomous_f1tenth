@@ -28,8 +28,10 @@ class OccupancyGridMapping:
 
     def world_to_map(self, x_wc, y_wc):
         # row = y,  col = x
-        row = int((y_wc - self.origin_y_wc) / self.resolution)
-        col = int((x_wc - self.origin_x_wc) / self.resolution)
+        origin_x_wc=30
+        origin_y_wc=30
+        row = int((y_wc - origin_y_wc) / self.resolution)
+        col = int((x_wc - origin_x_wc) / self.resolution)
         assert 0 <= row < self.height_gc and 0 <= col < self.width_gc
         return row, col
 
