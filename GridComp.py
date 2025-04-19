@@ -57,16 +57,16 @@ class OccupancyGridMapping:
         cells = []
 
         while True:
-            cells.append((r, c))
+            cells.append((r, c))        #  appends last cell too 
             if r == r1 and c == c1:
                 break
             e2 = 2 * err
-            if e2 > -dc:
+            if e2 > -dc:       # move in row (vertical)
                 err -= dc
                 r += sr
-            if e2 < dr:
+            if e2 < dr:        # move in column (horizontal)
                 err += dr
-                c += sc
+                c += sc        # if both moves happen → diagonal
 
         return cells
 
@@ -104,6 +104,8 @@ class OccupancyGridMapping:
             end_i, end_j = self.world_to_map(x_end, y_end)
 
             # Get cells along the beam using Bresenham's algorithm
+            # i = x , j = y
+            # bresenham2D() expects its arguments in (row, col) order (row ≙ y, col ≙ x)
             # cells = self.bresenham2D(robot_j, robot_i, end_i, end_j)
             cells = self.bresenham2D(robot_i, robot_j, end_j, end_i) 
             # Update all cells along the beam as free (except the final cell)
