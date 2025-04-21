@@ -39,7 +39,11 @@ class OccupancyGridMapping:
         # row = y,  col = x
         row = int((y_wc + self.origin_y_wc) / self.resolution)
         col = int((x_wc + self.origin_x_wc) / self.resolution)
-        # assert row >=0 and col >=0 
+        
+        # clamp to [0 .. size-1]
+        row = max(0, min(self.height_gc - 1, row))
+        col = max(0, min(self.width_gc  - 1, col))
+
         return row, col
 
 
@@ -120,16 +124,6 @@ class OccupancyGridMapping:
     
             # Get cells along the beam using Bresenham's algorithm
             cells = self.bresenham2D(r_row, r_col, e_row, e_col) 
-            # Update all cells along the beam as free (except the final cell)
-            # for row, col in (cells[:-1] if hit else cells):
-            #     if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
-            #         self.log_odds[row, col] = max(self.l_min, self.log_odds[row, col] + self.l_free)
-
-            # # Update the hit cell (last cell) as occupied
-            # if hit:
-            #     row, col = cells[-1]
-            #     if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
-            #         self.log_odds[row, col] = min(self.l_max, self.log_odds[row, col] + self.l_occ)
 
             last_valid_idx = -1          # keep track of the last cell that is inside
 

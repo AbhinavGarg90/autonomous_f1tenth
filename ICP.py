@@ -33,6 +33,8 @@ class ICPLocalizer:
 
         self.theta -= delta_theta
         self.position -= R_global @ translation
+        # self.theta    += delta_theta
+        # self.position += R_global @ translation
 
         self.x_history.append(self.position[0])
         self.y_history.append(self.position[1])

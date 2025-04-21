@@ -7,9 +7,12 @@ import time
 from GridComp import OccupancyGridMapping
 import matplotlib.pyplot as plt
 
+
+occupancy_node = OccupancyGridMapping() 
+height_gc, width_gc = occupancy_node.log_odds.shape
+grid = np.zeros((height_gc, width_gc), dtype=np.int8) # setting appropriate grid size for imshow
 # Setup plot
 fig, ax = plt.subplots()
-grid = np.random.randint(0, 101, size=(100, 100))
 im = ax.imshow(grid, cmap='viridis', vmin=0, vmax=100, interpolation='none')
 
 robot_dot = ax.scatter([],[],marker='^',s=60,c = 'red' )
@@ -40,8 +43,6 @@ icp = ICPLocalizer()
 icp.initialize(lidar_data)
 
 # plotter = LivePlotter(gt_pose)
-
-occupancy_node = OccupancyGridMapping()
 # Suppose you read the LaserScan from your own subscription or from icp
 # Init imshow plot
 prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
