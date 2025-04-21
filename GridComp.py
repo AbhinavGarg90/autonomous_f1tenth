@@ -14,10 +14,17 @@ class OccupancyGridMapping:
         self.width_gc = int(width_wc / resolution)
         self.height_gc = int(height_wc / resolution)
         self.resolution = resolution # world to grid
+
         self.origin_x_gc = int(origin_x_wc / resolution) 
         self.origin_y_gc = int(origin_y_wc / resolution)
+
         self.origin_x_wc = origin_x_wc
         self.origin_y_wc = origin_y_wc
+
+        self.x_min_wc = -origin_x_wc
+        self.x_max_wc =  width_wc - origin_x_wc
+        self.y_min_wc = -origin_y_wc
+        self.y_max_wc =  height_wc - origin_y_wc
 
         # Initialize the grid in log odds (0 means 50% probability)
         self.log_odds = np.zeros((self.height_gc, self.width_gc), dtype=np.float32)
@@ -30,11 +37,9 @@ class OccupancyGridMapping:
 
     def world_to_map(self, x_wc, y_wc):
         # row = y,  col = x
-        origin_x_wc=30
-        origin_y_wc=30
-        row = int((y_wc + origin_y_wc) / self.resolution)
-        col = int((x_wc + origin_x_wc) / self.resolution)
-        assert 0 <= row < self.height_gc and 0 <= col < self.width_gc
+        row = int((y_wc + self.origin_y_wc) / self.resolution)
+        col = int((x_wc + self.origin_x_wc) / self.resolution)
+        # assert row >=0 and col >=0 
         return row, col
 
 
@@ -90,12 +95,10 @@ class OccupancyGridMapping:
 
 
         for i in range(num_beams):
+
             r = ranges[i]
 
-            if np.isnan(r):
-                continue
-
-            if r < scan.range_min:                # TOO CLOSE : discard beam for now
+            if np.isnan(r) or r < scan.range_min:  # INVALID : discard beam for now
                 continue
 
             if r > scan.range_max or np.isinf(r):
@@ -118,15 +121,32 @@ class OccupancyGridMapping:
             # Get cells along the beam using Bresenham's algorithm
             cells = self.bresenham2D(r_row, r_col, e_row, e_col) 
             # Update all cells along the beam as free (except the final cell)
-            for row, col in (cells[:-1] if hit else cells):
-                if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
-                    self.log_odds[row, col] = max(self.l_min, self.log_odds[row, col] + self.l_free)
+            # for row, col in (cells[:-1] if hit else cells):
+            #     if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
+            #         self.log_odds[row, col] = max(self.l_min, self.log_odds[row, col] + self.l_free)
 
-            # Update the hit cell (last cell) as occupied
-            if hit:
-                row, col = cells[-1]
-                if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
-                    self.log_odds[row, col] = min(self.l_max, self.log_odds[row, col] + self.l_occ)
+            # # Update the hit cell (last cell) as occupied
+            # if hit:
+            #     row, col = cells[-1]
+            #     if 0 <= row < self.height_gc and 0 <= col < self.width_gc:
+            #         self.log_odds[row, col] = min(self.l_max, self.log_odds[row, col] + self.l_occ)
+
+            last_valid_idx = -1          # keep track of the last cell that is inside
+
+            for k, (row, col) in enumerate(cells):
+                inside = (0 <= row < self.height_gc) and (0 <= col < self.width_gc)
+                if not inside:
+                    break                # stop processing laser as it exits the map
+
+                # mark free space for every cell except the last if hit
+                if not (hit and k == len(cells) - 1):
+                    self.log_odds[row, col] = max(self.l_min,
+                                                self.log_odds[row, col] + self.l_free)
+                last_valid_idx = k
+
+            if hit and last_valid_idx == len(cells) - 1:
+                row, col = cells[last_valid_idx]
+                self.log_odds[row, col] = min(self.l_max, self.log_odds[row, col] + self.l_occ)
 
     def get_probability_map(self):
         """ Convert the log odds grid to a probability map scaled to [0, 100] (integer values)."""
