@@ -39,7 +39,7 @@ def main():
     lidar_topic = '/car_1/scan' if sim else 'scan'
 
     while not rospy.is_shutdown():
-        ldata = get_lidar_data(lidar_topic)
+        ldata, msg = get_lidar_data(lidar_topic)
         x = [xi for xi, _ in ldata]
         y = [yi for _, yi in ldata]
         scatter.set_offsets(np.c_[x, y])
