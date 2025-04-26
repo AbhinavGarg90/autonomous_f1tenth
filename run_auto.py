@@ -47,6 +47,7 @@ icp.initialize(lidar_data)
 # Suppose you read the LaserScan from your own subscription or from icp
 # Init imshow plot
 prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
+
 while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
     est_pose = icp.update(lidar_data)
@@ -67,3 +68,30 @@ while not rospy.is_shutdown():
     robot_dot.set_offsets([[col,row]])
     robot_dot_gt.set_offsets([[col_gt,row_gt]])
     # plt.pause(0.01)  # Allow time to render
+
+# while not rospy.is_shutdown():
+#     # grab a new scan & poses
+#     lidar_data, raw_data = get_lidar_data(lidar_topic)
+#     est_pose = icp.update(lidar_data)
+#     act_pose = gtpose_tracker.get_pose()
+#     used_pose = act_pose
+
+#     # update our internal log-odds grid
+#     occupancy_node.update_map(used_pose[0],
+#                               used_pose[1],
+#                               used_pose[2],
+#                               raw_data)
+
+#     # ---- NEW: publish the nav_msgs/OccupancyGrid ----
+#     occupancy_node.publish_map(raw_data.header.stamp)
+
+#     # now pull out the [0–100] probability grid for plotting
+#     prob_grid = occupancy_node.get_probability_map()
+#     im.set_data(prob_grid)
+#     plt.pause(0.01)
+
+#     # plot your estimated vs. ground-truth robot location
+#     row,   col   = occupancy_node.world_to_map(est_pose[0],  est_pose[1])
+#     row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+#     robot_dot.set_offsets([[col,   row]])
+#     robot_dot_gt.set_offsets([[col_gt, row_gt]])

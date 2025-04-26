@@ -2,9 +2,10 @@ import rospy
 import numpy as np
 import math
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import PoseStamped, Quaternion
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import Int8MultiArray, MultiArrayDimension
+from geometry_msgs.msg import Pose, Point, Quaternion
+from nav_msgs.msg import OccupancyGrid, MapMetaData
 
 
 # All indices are either world coordinates (_wc) or grid grid coordiantes (_gc)
@@ -34,6 +35,24 @@ class OccupancyGridMapping:
         self.l_free = math.log(0.3 / 0.7)  # update for a free cell = p/1-p -0.847
         self.l_min = -5.0 
         self.l_max =  5.0  
+
+        # --- NEW: set up map publisher ---
+        self.map_pub = rospy.Publisher('map', OccupancyGrid, queue_size=1)
+        self.map_msg = OccupancyGrid()
+        self.map_msg.header.frame_id = "map"
+        # Fill in the meta‐data
+        self.map_msg.info = MapMetaData()
+        self.map_msg.info.resolution = self.resolution
+        self.map_msg.info.width = self.width_gc
+        self.map_msg.info.height = self.height_gc
+
+        # Define the origin pose of the map in the "map" frame
+        self.map_msg.info.origin = Pose(
+            position=Point(x=-self.origin_x_wc,  # map origin (world coords)
+                           y=-self.origin_y_wc,
+                           z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        )
 
     def world_to_map(self, x_wc, y_wc):
         # row = y,  col = x
@@ -149,9 +168,26 @@ class OccupancyGridMapping:
         binary = (prob > 0.5).astype(np.int8)
         return prob_scaled
     
+    def publish_map(self, stamp=None):
+        """ Publish the occupancy grid as a nav_msgs/OccupancyGrid. """
+        if stamp is None:
+            stamp = rospy.Time.now()
+        self.map_msg.header.stamp = stamp
+
+        # Get the probability grid [0–100] and flatten in row-major order
+        prob = self.get_probability_map()
+        self.map_msg.data = prob.flatten().tolist()
+
+        self.map_pub.publish(self.map_msg)
+    
+    # def update_map(self, x, y, theta, scan_msg):
+    #     self.robot_pose = (x, y, theta)
+    #     self.update(self.robot_pose, scan_msg)
     def update_map(self, x, y, theta, scan_msg):
+        """Call this from your subscriber callback to update & immediately publish."""
         self.robot_pose = (x, y, theta)
         self.update(self.robot_pose, scan_msg)
+        self.publish_map(scan_msg.header.stamp)
 
 
 def main():
