@@ -81,5 +81,5 @@ class Vicon:
             self.data_path.data[3] = round(np.degrees(yaw_new))
             print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
             print("\n")
-            return x_new, y_new, yaw_new
+            return [x_new, y_new, yaw_new]
         return None
