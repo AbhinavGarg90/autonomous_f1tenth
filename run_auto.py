@@ -32,9 +32,11 @@ lidar_topic = '/car_1/scan' if sim else 'scan'
 
 lidar_data, raw_data = get_lidar_data(lidar_topic)
 
+using_gt = False
 if sim:
     from model_pos import CarPoseTracker
     gtpose_tracker = CarPoseTracker()
+    using_gt = True
 # else:
 #     from vicon_bridge import Vicon
 #     gtpose_tracker = Vicon()
@@ -50,9 +52,11 @@ prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
 
 while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
-    est_pose = icp.update(lidar_data)
-    act_pose = gtpose_tracker.get_pose()
-    used_pose = act_pose
+    est_pose[2] = icp.update(lidar_data)[2]
+    est_pose = vesc.integrate_pose(est_pose)
+    if using_gt:
+        act_pose = gtpose_tracker.get_pose()
+    used_pose = est_pose
     occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
     # occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
     #                           act_pose[1] - gt_pose_orig[1],
@@ -64,34 +68,7 @@ while not rospy.is_shutdown():
 
     map_pose = est_pose
     row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-    row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+    # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
     robot_dot.set_offsets([[col,row]])
-    robot_dot_gt.set_offsets([[col_gt,row_gt]])
+    # robot_dot_gt.set_offsets([[col_gt,row_gt]])
     # plt.pause(0.01)  # Allow time to render
-
-# while not rospy.is_shutdown():
-#     # grab a new scan & poses
-#     lidar_data, raw_data = get_lidar_data(lidar_topic)
-#     est_pose = icp.update(lidar_data)
-#     act_pose = gtpose_tracker.get_pose()
-#     used_pose = act_pose
-
-#     # update our internal log-odds grid
-#     occupancy_node.update_map(used_pose[0],
-#                               used_pose[1],
-#                               used_pose[2],
-#                               raw_data)
-
-#     # ---- NEW: publish the nav_msgs/OccupancyGrid ----
-#     occupancy_node.publish_map(raw_data.header.stamp)
-
-#     # now pull out the [0–100] probability grid for plotting
-#     prob_grid = occupancy_node.get_probability_map()
-#     im.set_data(prob_grid)
-#     plt.pause(0.01)
-
-#     # plot your estimated vs. ground-truth robot location
-#     row,   col   = occupancy_node.world_to_map(est_pose[0],  est_pose[1])
-#     row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
-#     robot_dot.set_offsets([[col,   row]])
-#     robot_dot_gt.set_offsets([[col_gt, row_gt]])
