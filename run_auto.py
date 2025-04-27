@@ -27,7 +27,7 @@ ax.tick_params(which='minor', bottom=False, left=False)
 ax.set_xticks([])
 ax.set_yticks([])
 
-sim = True
+sim = False
 rospy.init_node("icp_runner")
 lidar_topic = '/car_1/scan' if sim else 'scan'
 
@@ -38,11 +38,11 @@ if sim:
     from model_pos import CarPoseTracker
     gtpose_tracker = CarPoseTracker()
     using_gt = True
-# else:
-#     from vicon_bridge import Vicon
-#     gtpose_tracker = Vicon()
+else:
+    from vicon_bridge import Vicon
+    gtpose_tracker = Vicon()
 
-# gt_pose_orig = gtpose_tracker.get_pose()
+gt_pose_orig = gtpose_tracker.get_pose()
 icp = ICPLocalizer()
 icp.initialize(lidar_data)
 
@@ -51,6 +51,7 @@ icp.initialize(lidar_data)
 # Init imshow plot
 prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
 est_pose = [0, 0, 0]
+vesc = VESCMotorIntegrator()
 
 while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
@@ -59,18 +60,18 @@ while not rospy.is_shutdown():
     if using_gt:
         act_pose = gtpose_tracker.get_pose()
     used_pose = est_pose
-    occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
-    # occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
-    #                           act_pose[1] - gt_pose_orig[1],
-    #                           act_pose[2] - gt_pose_orig[2],
-    #                           raw_data)
+    # occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
+    occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
+                              act_pose[1] - gt_pose_orig[1],
+                              act_pose[2] - gt_pose_orig[2],
+                              raw_data)
     map = occupancy_node.get_probability_map()
     im.set_data(map)
     plt.pause(0.01)
 
     map_pose = est_pose
     row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-    # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+    row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
     robot_dot.set_offsets([[col,row]])
-    # robot_dot_gt.set_offsets([[col_gt,row_gt]])
+    robot_dot_gt.set_offsets([[col_gt,row_gt]])
     # plt.pause(0.01)  # Allow time to render
