@@ -7,6 +7,10 @@ import time
 from GridComp import OccupancyGridMapping
 import matplotlib.pyplot as plt
 from odom import VESCMotorIntegrator
+import sys
+import subprocess
+import numpy as np
+import pickle
 
 
 occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
@@ -52,25 +56,36 @@ icp.initialize(lidar_data)
 prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
 est_pose = [0, 0, 0]
 
+proc = subprocess.Popen(
+    ["python3", "run_mapping.py"],
+    stdin=subprocess.PIPE
+)
+
 while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
     est_pose[2] = icp.update(lidar_data)[2]
     est_pose = vesc.integrate_pose(est_pose)
-    if using_gt:
-        act_pose = gtpose_tracker.get_pose()
-    used_pose = est_pose
-    occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
-    # occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
-    #                           act_pose[1] - gt_pose_orig[1],
-    #                           act_pose[2] - gt_pose_orig[2],
-    #                           raw_data)
-    map = occupancy_node.get_probability_map()
-    im.set_data(map)
-    plt.pause(0.01)
+    # if using_gt:
+    #     act_pose = gtpose_tracker.get_pose()
+    print(est_pose, raw_data)
+    data = pickle.dumps((est_pose, raw_data))
+    size_bytes = len(data).to_bytes(4, 'big')
+    proc.stdin.write(size_bytes)
+    proc.stdin.write(data)
+    proc.stdin.flush()
+    # used_pose = est_pose
+    # occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
+    # # occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
+    # #                           act_pose[1] - gt_pose_orig[1],
+    # #                           act_pose[2] - gt_pose_orig[2],
+    # #                           raw_data)
+    # map = occupancy_node.get_probability_map()
+    # im.set_data(map)
+    # plt.pause(0.01)
 
-    map_pose = est_pose
-    row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-    # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
-    robot_dot.set_offsets([[col,row]])
+    # map_pose = est_pose
+    # row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
+    # # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+    # robot_dot.set_offsets([[col,row]])
     # robot_dot_gt.set_offsets([[col_gt,row_gt]])
     # plt.pause(0.01)  # Allow time to render
