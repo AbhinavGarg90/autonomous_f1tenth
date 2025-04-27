@@ -67,6 +67,12 @@ while not rospy.is_shutdown():
     map = occupancy_node.get_probability_map()
     im.set_data(map)
     plt.pause(0.01)
+    act_pose_matched = act_pose
+    print(f'est_pose: x: {est_pose[0]:.2f}, y: {est_pose[1]:.2f}, theta: {est_pose[2] * 180 / np.pi:.2f}')
+    act_pose_matched[0] -= gt_pose_orig[0]
+    act_pose_matched[1] -= gt_pose_orig[1]
+    act_pose_matched[2] -= gt_pose_orig[2]
+    print(f'act_pose: x: {act_pose_matched[0]:.2f}, y: {act_pose_matched[1]:.2f}, theta: {act_pose_matched[2] * 180 / np.pi:.2f}')
 
     map_pose = est_pose
     row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])

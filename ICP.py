@@ -34,7 +34,6 @@ class ICPLocalizer:
         self.y_history.append(self.position[1])
 
         self.old_scan = new_scan
-        print(R_global @ translation, delta_theta)
         return self.position[0], self.position[1], self.theta
 
     def icp(self, old_scan, new_scan, max_iterations=100, tolerance=1e-6):
