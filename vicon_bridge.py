@@ -14,16 +14,16 @@ def pi_2_pi(angle):
 
 class Vicon:
     def __init__(self):
-        self.master = mavutil.mavlink_connection('udpin:0.0.0.0:10086')
 
     def get_pose(self):
+        master = mavutil.mavlink_connection('udpin:0.0.0.0:10086')
         data = Float64MultiArray()
         data.data = [0, ] * (9 + 2 + 4 + 1)
 
         data_path = Float64MultiArray()
         data_path.data = [0, ] * 4
 
-        msg = self.master.recv_match(blocking=True)
+        msg = master.recv_match(blocking=True)
 
         if not msg:
             return None

@@ -57,8 +57,7 @@ while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
     est_pose[2] = icp.update(lidar_data)[2]
     est_pose = vesc.integrate_pose(est_pose)
-    if using_gt:
-        act_pose = gtpose_tracker.get_pose()
+    act_pose = gtpose_tracker.get_pose()
     used_pose = est_pose
     # occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
     occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
