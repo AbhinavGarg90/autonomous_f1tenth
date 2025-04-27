@@ -6,6 +6,7 @@ import numpy as np
 import time
 from GridComp import OccupancyGridMapping
 import matplotlib.pyplot as plt
+from odom import VESCMotorIntegrator
 
 
 occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
@@ -49,6 +50,7 @@ icp.initialize(lidar_data)
 # Suppose you read the LaserScan from your own subscription or from icp
 # Init imshow plot
 prev_lidar_data, raw_data = get_lidar_data(lidar_topic)
+est_pose = [0, 0, 0]
 
 while not rospy.is_shutdown():
     lidar_data, raw_data = get_lidar_data(lidar_topic)
