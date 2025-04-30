@@ -136,21 +136,44 @@ def main():
     # origin_x = -occ_node.origin_x_wc
     # origin_y = -occ_node.origin_y_wc
 
-    # start_pose = (origin_x, origin_y, 0.0)  
+    # start_pose = (origin_x, origin_y, 0.0)
 
     # visualise_grid(prob_map, title="Final map after SLAM, before planning")
 
-    # occ_map = prob_to_occ(prob_map)   # prob_map from line 154
+    # occ_map = prob_to_occ(prob_map)  # prob_map from line 154
     # rospy.loginfo("[run_auto] Calling Hybrid A★ …")
+
+    # # Uncomment this when you have your planner ready
     # waypoints = plan_path_to_goal_region(start_pose, occ_map, resolution,
-    #                                      origin_x, origin_y)
+    #                                     origin_x, origin_y)
+
     # if waypoints is None:
     #     rospy.logerr("[run_auto] Planner failed — exiting")
     #     sys.exit(1)
 
     # csv_path = CSV_DIR / args.csv_name
     # save_waypoints_csv(waypoints, csv_path)
+
+    # # Visualization of map and waypoints
+    # fig, ax = plt.subplots(figsize=(10, 10))
+    # ax.imshow(prob_map, cmap="viridis", vmin=0, vmax=100, origin="upper")
+
+    # # Plot waypoints
+    # for wp in waypoints:
+    #     x, y, theta = wp
+    #     r, c = occ_node.world_to_map(x, y)
+    #     ax.plot(c, r, 'ro')  # waypoint positions
+    #     dx = np.cos(theta)
+    #     dy = np.sin(theta)
+    #     ax.arrow(c, r, dx, -dy, head_width=2, head_length=3, fc='red', ec='red')
+
+    # ax.set_title("Planned Waypoints on Occupancy Grid")
+    # ax.axis('off')
+    # plt.show()
+
     # rospy.loginfo("[run_auto] Done — launch vicon_planner.py to follow the path")
+
+    
 
 
 if __name__ == "__main__":
