@@ -11,7 +11,11 @@ import sys
 import subprocess
 import numpy as np
 import pickle
+from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float32MultiArray
 
+pose_pub = rospy.Publisher('/icp_estimated_pose', PoseStamped, queue_size=10)
+lidar_pub = rospy.Publisher('/raw_lidar_points', Float32MultiArray, queue_size=10)
 
 occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
 height_gc, width_gc = occupancy_node.log_odds.shape
@@ -67,25 +71,17 @@ while not rospy.is_shutdown():
     est_pose = vesc.integrate_pose(est_pose)
     # if using_gt:
     #     act_pose = gtpose_tracker.get_pose()
-    print(est_pose, raw_data)
-    data = pickle.dumps((est_pose, raw_data))
-    size_bytes = len(data).to_bytes(4, 'big')
-    proc.stdin.write(size_bytes)
-    proc.stdin.write(data)
-    proc.stdin.flush()
-    # used_pose = est_pose
-    # occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
-    # # occupancy_node.update_map(act_pose[0] - gt_pose_orig[0],
-    # #                           act_pose[1] - gt_pose_orig[1],
-    # #                           act_pose[2] - gt_pose_orig[2],
-    # #                           raw_data)
-    # map = occupancy_node.get_probability_map()
-    # im.set_data(map)
-    # plt.pause(0.01)
+    pose_msg = PoseStamped()
+    pose_msg.header.stamp = rospy.Time.now()
+    pose_msg.header.frame_id = "map"
+    pose_msg.pose.position.x = est_pose[0]
+    pose_msg.pose.position.y = est_pose[1]
+    pose_msg.pose.position.z = 0.0
+    pose_msg.pose.orientation.z = np.sin(est_pose[2]/2.0)
+    pose_msg.pose.orientation.w = np.cos(est_pose[2]/2.0)
+    pose_pub.publish(pose_msg)
 
-    # map_pose = est_pose
-    # row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-    # # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
-    # robot_dot.set_offsets([[col,row]])
-    # robot_dot_gt.set_offsets([[col_gt,row_gt]])
-    # plt.pause(0.01)  # Allow time to render
+    flat_lidar = raw_data.flatten()
+    lidar_msg = Float32MultiArray()
+    lidar_msg.data = flat_lidar.tolist()
+    lidar_pub.publish(lidar_msg)

@@ -1,63 +1,70 @@
-from lidar_polled import get_lidar_data
-from ICP import ICPLocalizer
-from live_plotter import LivePlotter
+#!/usr/bin/env python3
+
 import rospy
 import numpy as np
-import time
 from GridComp import OccupancyGridMapping
 import matplotlib.pyplot as plt
-from odom import VESCMotorIntegrator
-import sys
-import subprocess
-import numpy as np
-import pickle
 
+from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float32MultiArray
 
-occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
-height_gc, width_gc = occupancy_node.log_odds.shape
-grid = np.zeros((height_gc, width_gc), dtype=np.int8) # setting appropriate grid size for imshow
-# Setup plot
-fig, ax = plt.subplots()
-im = ax.imshow(grid, cmap='viridis', vmin=0, vmax=100, interpolation='none')
+# Global storage for incoming messages
+latest_pose = None
+latest_lidar = None
 
-robot_dot = ax.scatter([],[],marker='^',s=60,c = 'red' )
-robot_dot_gt = ax.scatter([],[],marker='^',s=60,c = 'green' )
+def pose_callback(msg):
+    global latest_pose
+    latest_pose = (
+        msg.pose.position.x,
+        msg.pose.position.y,
+        2 * np.arctan2(msg.pose.orientation.z, msg.pose.orientation.w)  # extract yaw
+    )
 
-# Add grid lines between cells
-ax.set_xticks(np.arange(-0.5, 200, 1), minor=True)
-ax.set_yticks(np.arange(-0.5, 200, 1), minor=True)
-ax.grid(which='minor', color='white', linestyle='-', linewidth=0.1)
-ax.tick_params(which='minor', bottom=False, left=False)
-ax.set_xticks([])
-ax.set_yticks([])
+def lidar_callback(msg):
+    global latest_lidar
+    data = np.array(msg.data, dtype=np.float32)
+    if data.size % 2 == 0:
+        latest_lidar = data.reshape(-1, 2)
 
-# plotter = LivePlotter(gt_pose)
-# Suppose you read the LaserScan from your own subscription or from icp
-# Init imshow plot
+def main():
+    global latest_pose, latest_lidar
 
-time.sleep(1)
+    rospy.init_node('run_mapping_node')
 
-while 1:
-    size_bytes = sys.stdin.buffer.read(4)
-    if not size_bytes:
-        break  # No more data
+    rospy.Subscriber('/icp_estimated_pose', PoseStamped, pose_callback)
+    rospy.Subscriber('/raw_lidar_points', Float32MultiArray, lidar_callback)
 
-    size = int.from_bytes(size_bytes, 'big')
+    occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
+    height_gc, width_gc = occupancy_node.log_odds.shape
+    grid = np.zeros((height_gc, width_gc), dtype=np.int8)
 
-    # Read the actual data
-    data = sys.stdin.buffer.read(size)
+    # Setup matplotlib plot
+    fig, ax = plt.subplots()
+    im = ax.imshow(grid, cmap='viridis', vmin=0, vmax=100, interpolation='none')
 
-    if not data:
-        break
+    robot_dot = ax.scatter([], [], marker='^', s=60, c='red')
 
-    est_pose, raw_data = pickle.loads(data)
-    used_pose = est_pose
+    ax.set_xticks(np.arange(-0.5, width_gc, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, height_gc, 1), minor=True)
+    ax.grid(which='minor', color='white', linestyle='-', linewidth=0.1)
+    ax.tick_params(which='minor', bottom=False, left=False)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
-    occupancy_node.update_map(used_pose[0], used_pose[1], used_pose[2], raw_data)
-    map = occupancy_node.get_probability_map()
-    im.set_data(map)
-    plt.pause(0.01)
+    rate = rospy.Rate(10)
+    while not rospy.is_shutdown():
+        if latest_pose is not None and latest_lidar is not None:
+            x, y, theta = latest_pose
+            occupancy_node.update_map(x, y, theta, latest_lidar)
+            map = occupancy_node.get_probability_map()
+            im.set_data(map)
 
-    map_pose = est_pose
-    row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-    robot_dot.set_offsets([[col,row]])
+            row, col = occupancy_node.world_to_map(x, y)
+            robot_dot.set_offsets([[col, row]])
+
+            plt.pause(0.01)
+
+        rate.sleep()
+
+if __name__ == '__main__':
+    main()
