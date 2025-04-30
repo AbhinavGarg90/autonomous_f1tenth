@@ -59,7 +59,7 @@ class Vicon:
             y_global = round(self.data.data[1], 3)
             yaw_global = round(np.degrees(self.data.data[9]))
 
-            print("X_global, Y_global, Yaw_global", x_global, y_global, yaw_global)
+            # print("X_global, Y_global, Yaw_global", x_global, y_global, yaw_global)
 
             # -------------------------------- For Global Origin Conversion --------------------------------
             # 0.545
@@ -79,7 +79,7 @@ class Vicon:
             self.data_path.data[1] = y_new
             self.data_path.data[2] = yaw_new
             self.data_path.data[3] = round(np.degrees(yaw_new))
-            print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
-            print("\n")
+            # print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
+            # print("\n")
             return [x_new, y_new, yaw_new]
         return None

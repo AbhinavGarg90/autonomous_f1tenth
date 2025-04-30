@@ -15,7 +15,12 @@ def get_lidar_data(topic):
         valid = (ranges > msg.range_min) & (ranges < msg.range_max)
         ranges = ranges[valid]
         angles = angles[valid]
-
+        
+        min_angle = -110 * np.pi / 180
+        max_angle = 110 * np.pi / 180
+        valid = (angles > min_angle) & (angles < max_angle)
+        ranges = ranges[valid]
+        angles = angles[valid]
         # Convert polar to Cartesian
         x = ranges * np.cos(angles)
         y = ranges * np.sin(angles)
@@ -35,7 +40,7 @@ def main():
     ax.set_xlim(-10, 10)
     ax.set_ylim(-10, 10)
     ax.grid(True)
-    sim = True
+    sim = False
     lidar_topic = '/car_1/scan' if sim else 'scan'
 
     while not rospy.is_shutdown():
