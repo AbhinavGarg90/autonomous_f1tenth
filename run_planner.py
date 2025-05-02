@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from waypoint_planner import plan_path_to_goal_region
+import os
+import csv
 
 
 occupancy_map = np.load('saved_map/fixed_shitty_map_possibly')
@@ -38,6 +40,29 @@ waypoints_map = plan_path_to_goal_region(
     # No need to pass origin if assuming (0,0)
     # planner=default_planner # Optional: Pass a specific planner instance
 )
+
+
+# === Convert waypoints from MAP coordinates to WORLD coordinates and save to CSV ===
+if waypoints_map:
+    waypoints_world = []
+    for row, col, theta in waypoints_map:
+        x_world = (col - start_col) * resolution
+        y_world = (row - start_row) * resolution
+        waypoints_world.append((x_world, y_world, theta))
+
+
+    # Save to CSV
+    output_dir = "waypoints_in_csv"
+    output_file = os.path.join(output_dir, "waypoints_world.csv")
+    with open(output_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        for x, y, theta in waypoints_world:
+            writer.writerow([round(x, 4), round(y, 4), round(theta, 6)])
+
+    print(f"\nWaypoints successfully saved to: {output_file}")
+
+else:
+    print("\nSkipping world coordinate conversion and CSV export: no waypoints.")
 
 # 6. Plotting (using map coordinates directly)
 plt.figure(figsize=(12, 12))
