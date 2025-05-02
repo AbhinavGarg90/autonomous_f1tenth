@@ -34,7 +34,7 @@ class ICPLocalizer:
         self.y_history.append(self.position[1])
 
         self.old_scan = new_scan
-        return self.position[0], self.position[1], self.theta
+        return -delta_theta
 
     def icp(self, old_scan, new_scan, max_iterations=100, tolerance=1e-6):
         src = np.array(old_scan, copy=True)

@@ -5,9 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sensor_msgs.msg import LaserScan
 
-def get_lidar_data(topic):
-        msg = rospy.wait_for_message(topic, LaserScan)
-
+def process_lidar(msg):
         angles = np.arange(msg.angle_min, msg.angle_max, msg.angle_increment)
         ranges = np.array(msg.ranges)
 
@@ -25,7 +23,11 @@ def get_lidar_data(topic):
         x = ranges * np.cos(angles)
         y = ranges * np.sin(angles)
         return np.array(list(zip(x, y))), (angles, ranges)
+    
 
+def get_lidar_data(topic):
+        msg = rospy.wait_for_message(topic, LaserScan)
+        return process_lidar(msg)
 
 def main():
     rospy.init_node('lidar_realtime_plot')

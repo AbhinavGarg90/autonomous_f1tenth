@@ -11,14 +11,14 @@ import rospy
 
 from ICP import ICPLocalizer
 from GridComp import OccupancyGridMapping
-from lidar_polled import get_lidar_data
-from odom import VESCMotorIntegrator
-from turning import SteeringIntegrator
+from lidar_polled import process_lidar
+from odom import PoseIntegrator, get_dxdy
+from turning import turning_dtheta
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Float32MultiArray
+from sensor_sync import SyncedSensorProcessor
 
 pose_pub = rospy.Publisher('/icp_estimated_pose', PoseStamped, queue_size=10)
-lidar_pub = rospy.Publisher('/raw_lidar_points', Float32MultiArray, queue_size=10)
 # from waypoint_planner import plan_path_to_goal_region
 
 def save_waypoints_csv(waypoints, csv_path):
@@ -75,10 +75,13 @@ def main():
 
     # ── SLAM components -------------------------------------------------------
     occ_node = OccupancyGridMapping()
-    lidar_data, raw_data = get_lidar_data(lidar_topic)
-    
+    sensor_processor = SyncedSensorProcessor()
+    _, _, lidar_msg, _ = sensor_processor.get_sensor_data()
+    while lidar_msg is None:
+        _, _, lidar_msg, _ = sensor_processor.get_sensor_data()
+    processed_scan, processed_msg = process_lidar(lidar_msg)
     icp = ICPLocalizer()
-    icp.initialize(lidar_data)
+    icp.initialize(processed_scan)
 
     # Ground‑truth tracker ----------------------------------------------------
     if sim:
@@ -100,28 +103,31 @@ def main():
     else:
         # ── SLAM initialisation ---------------------------------------------
         print("starting slam")
-        lidar_data, raw_data = get_lidar_data(lidar_topic)
-        icp.initialize(lidar_data)
-
         rospy.loginfo("[run_auto] Mapping - drive the vehicle, Ctrl-C when done …")
-        vesc = VESCMotorIntegrator()
-        steering = SteeringIntegrator
         est_pose = [0, 0, 0]
         # gt_origin = gt_tracker.get_pose()
         poses_list= []
         hz_const = 10
         iterct = 0
         prev_time = time.time()
+        pose_intgr = PoseIntegrator()
+        print("hi")
         try:
             # rate = rospy.Rate(40)
             while not rospy.is_shutdown():
                 if iterct % hz_const == 0:
                     print(f'running at {hz_const/ (time.time() - prev_time)}')
                     prev_time = time.time()
-                scan, raw = get_lidar_data(lidar_topic)
-                est_pose[2] = icp.update(scan)[2]
-                angle = steering.
-                est_pose = vesc.integrate_pose(est_pose)
+                
+                time.sleep(0.05)
+                velocity, steering_msg, lidar_msg, dt = sensor_processor.get_sensor_data()
+                processed_scan, _ = process_lidar(lidar_msg)
+                dtheta_icp = icp.update(processed_scan)
+                dtheta_steering = turning_dtheta(steering_msg, velocity, dt)
+                pose_intgr.update_theta(dtheta_icp, dtheta_steering)
+                dx, dy = get_dxdy(velocity, pose_intgr.theta, dt)
+                pose_intgr.update_position(dx, dy)
+                est_pose = pose_intgr.get_pose()
                 
                 pose_msg = PoseStamped()
                 pose_msg.header.stamp = rospy.Time.now()
@@ -133,10 +139,6 @@ def main():
                 pose_msg.pose.orientation.w = np.cos(est_pose[2]/2.0)
                 pose_pub.publish(pose_msg)
 
-                flat_lidar = np.array(raw_data[1], dtype=np.float32)
-                lidar_msg = Float32MultiArray()
-                lidar_msg.data = flat_lidar.tolist()
-                lidar_pub.publish(lidar_msg)
 
                 '''
                 act_pose = gt_tracker.get_pose()

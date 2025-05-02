@@ -13,7 +13,6 @@ import rospy
 from ICP import ICPLocalizer
 from GridComp import OccupancyGridMapping
 from lidar_polled import get_lidar_data
-from odom import VESCMotorIntegrator
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Float32MultiArray
 from vicon_bridge import Vicon
@@ -24,6 +23,7 @@ latest_lidar = None
 
 def pose_callback(msg):
     global latest_pose
+    print(latest_pose)
     latest_pose = (
         msg.pose.position.x,
         msg.pose.position.y,
@@ -94,10 +94,10 @@ def main():
 
 # rate = rospy.Rate(10)
     poses_list= []
-    gt_tracker = Vicon()
-    gt_origin = gt_tracker.get_pose()
+    # gt_tracker = Vicon()
+    # gt_origin = gt_tracker.get_pose()
     # print(latest_pose, latest_lidar)
-    lidar_data, raw_data = get_lidar_data("scan")
+    lidar_data, raw_data = get_lidar_data("/scan")
     # print(raw_data)
     hz_const = 10
     iterct = 0
@@ -108,15 +108,17 @@ def main():
             if iterct % hz_const == 0:
                 print(f'running at {hz_const/ (time.time() - prev_time)}')
                 prev_time = time.time()
-            lidar_data, raw_data = get_lidar_data("scan")
+            lidar_data, raw_data = get_lidar_data("/scan")
             latest_pose = 1
             if latest_pose is not None and raw_data is not None:
-                # x, y, theta = latest_pose
+                x, y, theta = latest_pose
+                '''
                 act_pose = gt_tracker.get_pose()
                 act_pose[0] = act_pose[0] - gt_origin[0]
                 act_pose[1] = act_pose[1] - gt_origin[1]
                 act_pose[2] = act_pose[2] - gt_origin[2]
                 x, y, theta = act_pose
+                '''
 
                 occupancy_node.update_map(x, y, theta, raw_data)
                 poses_list.append([x, y, theta])
