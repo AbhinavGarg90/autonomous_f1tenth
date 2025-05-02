@@ -1,466 +1,402 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
+# -------------------------
+# Standalone Hybrid A* Planner Module (Robot-Centric Frame)
+# Author: Rahul's Team + ChatGPT Modifications
+# Description: Plans a path given map, start (map coords), and goal (map coords).
+#              Operates internally relative to the start pose (0,0,theta).
+#              Outputs waypoints in absolute MAP coordinates (row, col, theta).
+# -------------------------
 
 import numpy as np
 import math
-import heapq  
-import time   
+import heapq
+import time
 
+# ==============================================================================
+# Utility Functions (Standalone - No ROS)
+# ==============================================================================
 
-
-# ----------------------- Hardcoded Goal Region Definition -----------------------
-# Define the target rectangular area in WORLD coordinates (meters).
-# The planner succeeds if it finds a valid state (x, y, theta) where
-# the (x, y) position falls within these boundaries.
-# IMPORTANT: Ensure this region is collision-free on the map you provide!
-GOAL_X_MIN = 4.5  # Minimum X coordinate of the goal region
-GOAL_X_MAX = 5.0  # Maximum X coordinate of the goal region
-GOAL_Y_MIN = -0.5 # Minimum Y coordinate of the goal region
-GOAL_Y_MAX = 0.5  # Maximum Y coordinate of the goal region
-
-GOAL_TARGET_THETA = None # MODIFIED: Set to None to ignore final orientation
-
-# --- Heuristic Calculation ---
-# Calculate the center of the goal region. The heuristic function (estimated
-# cost to goal) will aim towards this central point.
-GOAL_CENTER_X = (GOAL_X_MIN + GOAL_X_MAX) / 2.0
-GOAL_CENTER_Y = (GOAL_Y_MIN + GOAL_Y_MAX) / 2.0
-
-
-
-def world_to_map(x, y, origin_x, origin_y, resolution):
-    """
-    Converts continuous world coordinates (meters) into discrete grid cell indices (row, col).
-    Args:
-        x, y (float): World coordinates.
-        origin_x, origin_y (float): World coordinates of the bottom-left corner (cell [0,0]) of the map.
-        resolution (float): Size of one grid cell in meters.
-    Returns:
-        tuple: (row, col) integer indices corresponding to the world coordinates.
-    """
-    # Calculate column index based on X coordinate relative to origin
-    col = int((x - origin_x) / resolution)
-    # Calculate row index based on Y coordinate relative to origin
-    row = int((y - origin_y) / resolution)
-    return row, col
+# No map_to_world needed externally, as internal frame is robot-centric.
+# world_to_map is handled internally by the class using start reference.
 
 def normalize_angle(angle):
-    """
-    Normalizes an angle (in radians) to the range [-pi, pi].
-    Uses math.atan2(sin(a), cos(a)) for numerical stability and correctness across quadrants.
-    """
+    """Normalizes angle to [-pi, pi]."""
     return math.atan2(math.sin(angle), math.cos(angle))
 
+# ==============================================================================
+# Hybrid A* Planner Class (Robot-Centric Frame)
+# ==============================================================================
 
 class HybridAStarPlanner:
     """
-    Implements the core Hybrid A* search algorithm logic.
-
-    Hybrid A* extends the standard A* algorithm by searching in a continuous state
-    space (x, y, theta) and using kinematically feasible motion primitives (simulated
-    car movements) as edges between states, instead of simple grid movements. It uses
-    a discrete grid map for collision checking and often for discretizing states
-    for efficient storage in visited sets.
+    Implements Hybrid A* logic using a robot-centric internal frame.
+    Input/Output uses absolute map coordinates.
     """
     def __init__(self, wheelbase, step_size, max_steering_angle, num_steering_angles,
-                 obstacle_threshold=65, robot_length=0.5, robot_width=0.3,
-                 goal_xy_tolerance=0.1, # Tolerance used if comparing against a specific point (less relevant for region goal)
-                 goal_theta_tolerance=0.1, # Tolerance used ONLY if GOAL_TARGET_THETA is set
+                 obstacle_threshold=65, robot_length=0.4, robot_width=0.3,
                  num_angle_bins=72, heuristic_weight=1.0):
-        """
-        Initializes the planner with robot kinematic parameters, physical dimensions,
-        and algorithm tuning parameters.
-        """
-        # --- Robot Kinematic Parameters (for motion simulation) ---
-        self.WHEELBASE = wheelbase           # Distance between front and rear axles (m)
-        self.STEP_SIZE = step_size           # Simulation distance per motion primitive (m)
-        self.MAX_STEERING = max_steering_angle # Maximum steering angle (radians)
-        self.NUM_STEERING_ANGLES = num_steering_angles # Number of discrete steering actions to try
 
-        # --- Robot Dimension Parameters (for collision checking) ---
-        self.ROBOT_LENGTH = robot_length     # Robot length (m) along driving direction
-        self.ROBOT_WIDTH = robot_width       # Robot width (m) perpendicular to driving direction
+        # --- Robot & Planning Parameters ---
+        self.WHEELBASE = wheelbase
+        self.STEP_SIZE = step_size # Meters (relative displacement)
+        self.MAX_STEERING = max_steering_angle
+        self.NUM_STEERING_ANGLES = num_steering_angles
+        self.OBSTACLE_THRESHOLD = obstacle_threshold
+        self.ROBOT_LENGTH = robot_length # Meters
+        self.ROBOT_WIDTH = robot_width   # Meters
+        self.NUM_ANGLE_BINS = num_angle_bins
+        self.ANGLE_BIN_SIZE = 2.0 * math.pi / self.NUM_ANGLE_BINS
+        self.HEURISTIC_WEIGHT = heuristic_weight
 
-        # --- Planning & Grid Parameters ---
-        self.OBSTACLE_THRESHOLD = obstacle_threshold # Occupancy grid value >= this is an obstacle
-        self.GOAL_XY_TOL = goal_xy_tolerance     # Positional tolerance (less critical for region goal)
-        self.GOAL_THETA_TOL = goal_theta_tolerance # Angular tolerance (used if GOAL_TARGET_THETA is defined)
-        self.NUM_ANGLE_BINS = num_angle_bins     # Discretization level for orientation in visited set
-        self.ANGLE_BIN_SIZE = 2.0 * math.pi / num_angle_bins # Size of each angle bin (radians)
-        self.HEURISTIC_WEIGHT = heuristic_weight # Multiplier for the heuristic cost (Weighted A*)
-
-        # --- Precompute Discrete Steering Actions ---
-        # Creates a list of steering angles from -max to +max to simulate
+        # --- Precompute Steering Actions ---
         if self.NUM_STEERING_ANGLES > 1:
             self.steering_angles = np.linspace(-self.MAX_STEERING, self.MAX_STEERING, self.NUM_STEERING_ANGLES)
         else:
-            self.steering_angles = [0.0] # Only allow driving straight
+            self.steering_angles = [0.0]
 
-        # --- Precompute Robot Footprint Points (relative to robot center at [0,0]) ---
-        # Used for collision checking. Defines corners relative to the center (origin).
+        # --- Precompute Robot Footprint (relative to robot center [0,0] in meters) ---
         half_L = self.ROBOT_LENGTH / 2.0
         half_W = self.ROBOT_WIDTH / 2.0
         self.footprint_rel = [(half_L, half_W), (half_L, -half_W), (-half_L, -half_W), (-half_L, half_W)]
 
-        # --- Map Data Storage (Initialized via set_map) ---
-        self.map_data = None        # 2D NumPy array of occupancy values
-        self.map_resolution = 0.0   # Meters per cell
-        self.map_origin_x = 0.0     # World X coordinate of cell [0,0]'s corner
-        self.map_origin_y = 0.0     # World Y coordinate of cell [0,0]'s corner
-        self.map_height = 0         # Map height in cells
-        self.map_width = 0          # Map width in cells
-        print("Hybrid A* Planner Initialized (Standalone). Call set_map() before planning.")
+        # --- Map Data Storage (Set via setup) ---
+        self.map_data = None
+        self.map_resolution = 0.1 # Default, overridden
+        self.map_height = 0
+        self.map_width = 0
+        self.start_row_map = 0 # Absolute row index of start
+        self.start_col_map = 0 # Absolute col index of start
 
-    def set_map(self, map_data_array, resolution, origin_x, origin_y):
-        """Stores the provided map data and metadata required for planning."""
-        # Input validation
-        if not isinstance(map_data_array, np.ndarray) or map_data_array.ndim != 2:
-            raise ValueError("map_data_array must be a 2D NumPy array.")
+        # --- Goal Info (Set within find_path_internal) ---
+        # Goal position relative to start (in meters) for heuristic
+        self.goal_center_x_rel = 0.0
+        self.goal_center_y_rel = 0.0
+        # Goal region in absolute map coordinates
+        self.goal_min_row = 0
+        self.goal_max_row = 0
+        self.goal_min_col = 0
+        self.goal_max_col = 0
+
+        print("Hybrid A* Planner Initialized (Robot-Centric).")
+
+    # --- NEW: Internal coordinate conversion helper ---
+    def _robot_frame_to_map_cell(self, x_robot, y_robot):
+        """
+        Converts robot-centric coordinates (meters relative to start)
+        into absolute map cell indices (row, col).
+        Uses the stored start_row_map, start_col_map, and map_resolution.
+        """
+        # Calculate change in grid cells from start
+        delta_col = x_robot / self.map_resolution
+        delta_row = y_robot / self.map_resolution
+
+        # Add delta to start cell to get current absolute cell
+        # Use round() or floor() before int() for potentially better centering
+        current_col = int(round(delta_col + self.start_col_map))
+        current_row = int(round(delta_row + self.start_row_map))
+
+        return current_row, current_col
+
+    # --- NEW: Setup function ---
+    def setup(self, occupancy_map, resolution, start_pose_map):
+        """Stores map, resolution, and start pose map coordinates."""
+        if not isinstance(occupancy_map, np.ndarray) or occupancy_map.ndim != 2:
+            raise ValueError("occupancy_map must be a 2D NumPy array.")
         if resolution <= 0:
              raise ValueError("Resolution must be positive.")
+        if not isinstance(start_pose_map, tuple) or len(start_pose_map) != 3:
+             raise ValueError("start_pose_map must be tuple (row, col, theta)")
 
-        self.map_data = map_data_array
+        self.map_data = occupancy_map
         self.map_resolution = resolution
-        self.map_origin_x = origin_x
-        self.map_origin_y = origin_y
-        self.map_height, self.map_width = map_data_array.shape # Get dimensions from array
-        print(f"Map Set: Dimensions={self.map_width}x{self.map_height}, Resolution={self.map_resolution:.3f}, Origin=({self.map_origin_x:.2f}, {self.map_origin_y:.2f})")
+        self.map_height, self.map_width = occupancy_map.shape
+        self.start_row_map, self.start_col_map, _ = start_pose_map
 
-    def _discretize_state(self, x, y, theta):
-        """
-        Converts a continuous state (x, y, theta) into a discrete tuple representation
-        (grid_row, grid_col, angle_bin_index). This discrete state is used as a key
-        in dictionaries (cost_so_far, came_from) to efficiently track which approximate
-        states have been visited and their associated costs/parents. This avoids issues
-        with floating-point comparisons and significantly reduces redundant exploration.
-        """
-        row, col = world_to_map(x, y, self.map_origin_x, self.map_origin_y, self.map_resolution)
-        # Normalize theta, shift to [0, 2pi), divide by bin size, take integer part, modulo N
-        theta_bin = int((normalize_angle(theta) + math.pi) / self.ANGLE_BIN_SIZE) % self.NUM_ANGLE_BINS
+        # Validate start map coords
+        if not (0 <= self.start_row_map < self.map_height and 0 <= self.start_col_map < self.map_width):
+             raise ValueError(f"Start map coords ({self.start_row_map}, {self.start_col_map}) are outside map bounds.")
+
+        print(f"Planner Setup: Map={self.map_width}x{self.map_height}, Res={self.map_resolution:.3f}, "
+              f"StartMap=({self.start_row_map}, {self.start_col_map})")
+
+
+    def _discretize_state(self, x_robot, y_robot, theta_robot):
+        """Converts robot-centric state to a discrete tuple for visited sets."""
+        # Use the helper to get absolute map cell for discretization key
+        row, col = self._robot_frame_to_map_cell(x_robot, y_robot)
+        # Angle bin is relative to robot's frame (which is the planning frame)
+        theta_bin = int((normalize_angle(theta_robot) + math.pi) / self.ANGLE_BIN_SIZE) % self.NUM_ANGLE_BINS
+        # Key uses absolute row/col but relative theta binning
         return row, col, theta_bin
 
-    def _simulate_motion(self, x, y, theta, steering_angle):
-        """
-        Simulates the robot's movement for one 'STEP_SIZE' distance using the
-        kinematic bicycle model for a given 'steering_angle'. This generates a potential
-        next continuous state (a motion primitive).
-        Returns:
-            tuple: (next_x, next_y, next_theta) representing the continuous state after the step.
-        """
-        # Ensure steering angle is within physical limits
+
+    def _simulate_motion(self, x_robot, y_robot, theta_robot, steering_angle):
+        """Simulates motion in the robot-centric frame (meters relative to start)."""
+        # --- Kinematic simulation code operates on relative coords ---
         steering_angle = np.clip(steering_angle, -self.MAX_STEERING, self.MAX_STEERING)
-
-        # Handle straight motion (or near-zero steering to avoid numerical issues)
         if abs(steering_angle) < 1e-6:
-            next_x = x + self.STEP_SIZE * math.cos(theta)
-            next_y = y + self.STEP_SIZE * math.sin(theta)
-            next_theta = theta # Orientation does not change
+            # Change in x/y relative to current relative pose
+            next_x_robot = x_robot + self.STEP_SIZE * math.cos(theta_robot)
+            next_y_robot = y_robot + self.STEP_SIZE * math.sin(theta_robot)
+            next_theta_robot = theta_robot
         else:
-            # Apply bicycle model formulas for turning motion
-            turn_radius = self.WHEELBASE / math.tan(steering_angle) # Calculate turning radius
-            # Calculate the angle turned during this step (arc length / radius)
+            turn_radius = self.WHEELBASE / math.tan(steering_angle)
             beta = self.STEP_SIZE / turn_radius
-            # Calculate the final orientation after turning
-            next_theta = normalize_angle(theta + beta)
-            # Calculate the change in x and y based on the circular path segment
-            # (Alternative formulations exist, e.g., calculating circle center first)
-            next_x = x + turn_radius * (math.sin(next_theta) - math.sin(theta))
-            next_y = y - turn_radius * (math.cos(next_theta) - math.cos(theta))
+            next_theta_robot = normalize_angle(theta_robot + beta)
+            # These give the *new* relative position from start
+            next_x_robot = x_robot + turn_radius * (math.sin(next_theta_robot) - math.sin(theta_robot))
+            next_y_robot = y_robot - turn_radius * (math.cos(next_theta_robot) - math.cos(theta_robot))
+        return next_x_robot, next_y_robot, next_theta_robot
 
-        return next_x, next_y, next_theta
 
-    def _is_collision_free(self, x, y, theta):
-        """
-        Checks if the robot's footprint at the continuous state (x, y, theta)
-        collides with any obstacles in the occupancy grid. This is a critical step.
-        Uses a bounding box approach for efficiency (safer than corners, less accurate
-        than polygon rasterization).
-        Returns:
-            bool: True if the state is collision-free, False otherwise.
-        """
-        if self.map_data is None: return False # Cannot check without a map
+    def _is_collision_free(self, x_robot, y_robot, theta_robot):
+        """Checks collision using robot-centric pose and map grid."""
+        if self.map_data is None: return False
 
-        # --- 1. Calculate World Coordinates of Footprint Corners ---
-        cos_t, sin_t = math.cos(theta), math.sin(theta)
-        corners_world = []
-        for corner_x_rel, corner_y_rel in self.footprint_rel:
-            # Rotate and translate the relative corner points to world frame
-            world_x = x + (corner_x_rel * cos_t - corner_y_rel * sin_t)
-            world_y = y + (corner_x_rel * sin_t + corner_y_rel * cos_t)
-            corners_world.append((world_x, world_y))
+        # --- 1. Calculate Footprint Corners relative to robot's CURRENT pose (in robot-centric frame) ---
+        cos_t, sin_t = math.cos(theta_robot), math.sin(theta_robot)
+        corners_relative_to_current_pose = []
+        for corner_x_rel_center, corner_y_rel_center in self.footprint_rel: # footprint_rel is in meters
+            # Coords of corner relative to robot center (in robot-centric frame)
+            cx = x_robot + (corner_x_rel_center * cos_t - corner_y_rel_center * sin_t)
+            cy = y_robot + (corner_x_rel_center * sin_t + corner_y_rel_center * cos_t)
+            corners_relative_to_current_pose.append((cx, cy))
 
-        # --- 2. Calculate Grid Cell Indices of Footprint Corners ---
+        # --- 2. Convert each corner's relative coords to ABSOLUTE map cell ---
         corners_grid = []
         try:
-            for wx, wy in corners_world:
-                 row, col = world_to_map(wx, wy, self.map_origin_x, self.map_origin_y, self.map_resolution)
+            for cx_robot, cy_robot in corners_relative_to_current_pose:
+                 # Convert robot frame coord (relative to start) to absolute map cell
+                 row, col = self._robot_frame_to_map_cell(cx_robot, cy_robot)
                  corners_grid.append((row, col))
-        except ValueError: # Handle potential errors from world_to_map if resolution is bad
-            print("Error in world_to_map during collision check.")
-            return False
+        except ValueError: return False # Should not happen if resolution is set
 
-        # --- 3. Simple Out-of-Bounds Check (Any Corner Outside Map) ---
-        # If any corner maps to a cell outside the grid dimensions, it's invalid.
+        # --- 3. Out-of-Bounds Check (using absolute map cells) ---
         for r, c in corners_grid:
-             if not (0 <= r < self.map_height and 0 <= c < self.map_width):
-                  return False # Collision (out of bounds)
+             if not (0 <= r < self.map_height and 0 <= c < self.map_width): return False
 
-        # --- 4. Bounding Box Check ---
-        # Find the min/max row/col indices covered by the corners.
+        # --- 4. Bounding Box & Occupancy Check (using absolute map cells) ---
         min_r = min(r for r, c in corners_grid)
         max_r = max(r for r, c in corners_grid)
         min_c = min(c for r, c in corners_grid)
         max_c = max(c for r, c in corners_grid)
-
-        # Clip bounds just in case (should be redundant after corner check, but safe)
         min_r_clipped = max(0, min_r)
         max_r_clipped = min(self.map_height - 1, max_r)
         min_c_clipped = max(0, min_c)
         max_c_clipped = min(self.map_width - 1, max_c)
 
-        # --- 5. Check Occupancy of Cells within Bounding Box ---
-        # Iterate through every grid cell within the clipped bounding box.
-        # This is an approximation - it checks more cells than the exact footprint might cover.
-        for r in range(min_r_clipped, max_r_clipped + 1):
-            for c in range(min_c_clipped, max_c_clipped + 1):
-                # Check the occupancy value from the map data
-                # Treat unknown (-1) as occupied for safety.
-                if self.map_data[r, c] >= self.OBSTACLE_THRESHOLD or self.map_data[r, c] == -1:
-                    return False # Collision detected within the bounding box
+        try:
+            # Check the corresponding subgrid on the map_data
+            subgrid = self.map_data[min_r_clipped : max_r_clipped + 1, min_c_clipped : max_c_clipped + 1]
+            if np.any((subgrid >= self.OBSTACLE_THRESHOLD) | (subgrid == -1)): return False
+        except IndexError: return False
 
-        # If no collisions were found after checking all cells in the bbox, consider state safe.
-        return True
+        return True # Collision free
 
-    def _heuristic(self, x, y):
-        """
-        Calculates the heuristic cost (h_score): an estimate of the cost remaining
-        from the current state (x, y) to the goal. It guides the search.
-        Here, we use simple Euclidean distance to the *center* of the goal region,
-        multiplied by a weighting factor. This heuristic ignores obstacles and kinematics,
-        making it admissible (it doesn't overestimate the true cost) if weight is 1.0.
-        """
-        dx = GOAL_CENTER_X - x
-        dy = GOAL_CENTER_Y - y
-        # np.hypot calculates sqrt(dx^2 + dy^2)
+
+    def _heuristic(self, x_robot, y_robot):
+        """Calculates heuristic cost using poses relative to start."""
+        # Use the pre-calculated goal center relative to start
+        dx = self.goal_center_x_rel - x_robot
+        dy = self.goal_center_y_rel - y_robot
         return self.HEURISTIC_WEIGHT * np.hypot(dx, dy)
 
-    def reconstruct_path(self, came_from, current_discrete, current_state):
+
+    def reconstruct_path(self, came_from, current_discrete, current_state_robot):
         """
-        Rebuilds the path by backtracking from the goal state using the 'came_from'
-        dictionary, which stores the parent of each visited state.
-        Args:
-            came_from (dict): Maps {child_discrete_state: (parent_discrete_state, parent_continuous_state)}
-            current_discrete: The final discrete state that met goal criteria.
-            current_state: The final continuous state corresponding to current_discrete.
-        Returns:
-            list: A list of continuous (x, y, theta) state tuples from start to goal.
+        Rebuilds path. came_from stores parent states in ROBOT-CENTRIC frame.
+        Returns list of states in ROBOT-CENTRIC frame [(x_robot, y_robot, theta_robot), ...].
         """
-        path = [current_state] # Start the list with the final state
-        # Follow the chain of parents back to the start
+        path_robot = [current_state_robot]
         while current_discrete in came_from:
-            # Retrieve the parent's discrete and continuous states
-            parent_discrete, parent_state = came_from[current_discrete]
-            # Prepend the parent state to the path list
-            path.append(parent_state)
-            # Update current states for the next iteration
+            # came_from stores parent state in robot-centric coordinates
+            parent_discrete, parent_state_robot = came_from[current_discrete]
+            path_robot.append(parent_state_robot)
             current_discrete = parent_discrete
-            # current_state = parent_state # Not strictly needed inside loop anymore
+        return path_robot[::-1]
 
-        return path[::-1] # Reverse the list to get start -> goal order
 
-    # --- Main Planning Function ---
-    def find_path_internal(self, start):
+    def find_path_internal(self, start_theta, goal_region_map):
         """
-        Internal implementation of the Hybrid A* search algorithm.
-        Args:
-            start (tuple): Continuous start state (x, y, theta).
-        Returns:
-            list or None: List of waypoints [(x, y, theta), ...] or None if no path found.
+        Internal planner. Operates relative to start pose (0,0,start_theta).
+        Needs absolute goal region map coords to know when to stop and for heuristic calculation.
         """
-        # --- 1. Pre-computation & Sanity Checks ---
-        if self.map_data is None:
-            print("Error: Map data not set. Call set_map() before planning.")
-            return None
-        if not isinstance(start, tuple) or len(start) != 3:
-            raise ValueError("Start state must be a tuple (x, y, theta)")
-        if not self._is_collision_free(*start):
-             print(f"Error: Start state {start} is in collision!")
-             return None
+        # --- 1. Setup & Validation ---
+        if self.map_data is None: print("Error: Map not set via setup()."); return None
 
-        # --- 2. Initialization ---
-        # --- Priority Queue (Open Set) ---
-        # Stores nodes to be explored, prioritized by f_score.
-        # Uses heapq module (min-heap). Lower f_score = higher priority.
-        # Elements are tuples: (f_score, continuous_state_tuple)
+        self.goal_min_row, self.goal_max_row, self.goal_min_col, self.goal_max_col = goal_region_map
+        if not (0 <= self.goal_min_row <= self.goal_max_row < self.map_height and
+                0 <= self.goal_min_col <= self.goal_max_col < self.map_width):
+             print(f"Error: Goal region map coordinates invalid/outside map."); return None
+
+        # Calculate goal center RELATIVE TO START in meters for heuristic
+        goal_center_row = (self.goal_min_row + self.goal_max_row) / 2.0
+        goal_center_col = (self.goal_min_col + self.goal_max_col) / 2.0
+        # Calculate relative displacement in cells
+        delta_col_goal = goal_center_col - self.start_col_map
+        delta_row_goal = goal_center_row - self.start_row_map
+        # Convert cell displacement to meter displacement (relative coords)
+        self.goal_center_x_rel = delta_col_goal * self.map_resolution
+        self.goal_center_y_rel = delta_row_goal * self.map_resolution
+
+        print(f"Goal Region (Map Coords): Row=[{self.goal_min_row}-{self.goal_max_row}], Col=[{self.goal_min_col}-{self.goal_max_col}]")
+        print(f"Goal Center (Relative Coords): ({self.goal_center_x_rel:.2f}m, {self.goal_center_y_rel:.2f}m)")
+
+
+        # Define start state in ROBOT-CENTRIC frame (always 0,0 + initial theta)
+        start_state_robot = (0.0, 0.0, normalize_angle(start_theta))
+
+        # Check start collision (at relative coords 0,0)
+        if not self._is_collision_free(*start_state_robot):
+             print(f"Error: Start state map({self.start_row_map},{self.start_col_map}) is in collision!"); return None
+
+        # --- 2. Initialization (using ROBOT-CENTRIC states) ---
         open_set = []
-        start_discrete = self._discretize_state(*start)
-        start_g_score = 0.0 # Cost from start to start is zero
-        start_h_score = self._heuristic(start[0], start[1]) # Estimated cost from start to goal
-        start_f_score = start_g_score + start_h_score # A* formula: f = g + h
-        heapq.heappush(open_set, (start_f_score, start))
+        # Discrete key uses absolute map cell derived from (0,0) + start_cell
+        start_discrete = self._discretize_state(*start_state_robot)
+        start_g_score = 0.0
+        # Heuristic is calculated from robot frame (0,0) to relative goal center
+        start_h_score = self._heuristic(start_state_robot[0], start_state_robot[1])
+        start_f_score = start_g_score + start_h_score
+        heapq.heappush(open_set, (start_f_score, start_state_robot)) # Heap stores robot-centric states
 
-        # --- came_from dictionary ---
-        # Stores the path predecessors for reconstructing the path later.
-        # Key: discrete_state tuple (row, col, bin) of the child node
-        # Value: tuple (parent_discrete_state, parent_continuous_state)
-        came_from = {}
+        came_from = {} # Keys: discrete states (abs_row, abs_col, theta_bin)
+                       # Values: (parent_discrete, parent_robot_state)
+        cost_so_far = {start_discrete: start_g_score} # Keys are discrete states
 
-        # --- cost_so_far dictionary (g_score) ---
-        # Stores the minimum cost found so far to reach a specific discrete state from the start.
-        # Key: discrete_state tuple (row, col, bin)
-        # Value: float (cost, typically path length or time)
-        cost_so_far = {start_discrete: start_g_score}
-
-        print("Hybrid A* Planning started...")
+        print("Hybrid A* Planning started (Robot-Centric Frame)...")
         start_time = time.time()
-        nodes_expanded = 0 # Counter for search statistics
+        nodes_expanded = 0
 
-        # --- 3. Main A* Search Loop ---
-        # Continue as long as there are nodes in the open set to explore
+        # --- 3. Main A* Search Loop (operates on ROBOT-CENTRIC states) ---
         while open_set:
             nodes_expanded += 1
-
-            # --- 3a. Select Best Node ---
-            # Pop the node with the lowest f_score from the priority queue (heap).
-            # This node is the most promising one to explore next according to f = g + h.
-            current_f_score, current_state = heapq.heappop(open_set)
-
-            # --- 3b. Check for Stale Node (Optimization) ---
-            # It's possible to have multiple entries for the same discrete state in the heap
-            # if we found a shorter path to it later. This check ensures we only process
-            # a discrete state using the lowest cost found so far for it.
-            current_discrete = self._discretize_state(*current_state)
+            # Pop the state with the lowest f-score (state is relative to start)
+            current_f_score, current_state_robot = heapq.heappop(open_set)
+            # Get the discrete key for this state (based on absolute map cell)
+            current_discrete = self._discretize_state(*current_state_robot)
             current_g_score = cost_so_far.get(current_discrete, float('inf'))
-            # Recalculate f_score based on the *actual* current g_score stored.
-            # If the f_score popped from heap is significantly larger, it means the popped
-            # node corresponds to an older, longer path to this state. Skip it.
-            expected_f_score = current_g_score + self._heuristic(current_state[0], current_state[1])
-            if current_f_score > expected_f_score + 1e-5: # Add small tolerance for float errors
-                continue # This node is stale, ignore it.
 
-            # --- 3c. Goal Check ---
-            # Check if the current continuous state's (x, y) position is inside the target region.
-            current_x, current_y, current_theta = current_state
-            is_in_goal_xy = (GOAL_X_MIN <= current_x <= GOAL_X_MAX and
-                             GOAL_Y_MIN <= current_y <= GOAL_Y_MAX)
+            # Stale node check
+            expected_f_score = current_g_score + self._heuristic(current_state_robot[0], current_state_robot[1])
+            if current_f_score > expected_f_score + 1e-5: continue
 
-            # MODIFIED: Only check XY position. Orientation is ignored as GOAL_TARGET_THETA is None.
-            if is_in_goal_xy:
-                 # Optional: Check if GOAL_TARGET_THETA is set and check orientation
-                 # goal_orientation_met = True
-                 # if GOAL_TARGET_THETA is not None:
-                 #     orientation_error = abs(normalize_angle(current_theta - GOAL_TARGET_THETA))
-                 #     goal_orientation_met = (orientation_error < self.GOAL_THETA_TOL)
-                 # if goal_orientation_met: # Only succeed if orientation is also met (if required)
-                 #      ...
+            # --- Goal Check ---
+            # Convert current ROBOT-CENTRIC pose to ABSOLUTE map cell indices
+            current_row_abs, current_col_abs = self._robot_frame_to_map_cell(
+                current_state_robot[0], current_state_robot[1]
+            )
+            # Check if these ABSOLUTE map indices are inside the goal MAP region
+            is_in_goal_map_region = (self.goal_min_row <= current_row_abs <= self.goal_max_row and
+                                     self.goal_min_col <= current_col_abs <= self.goal_max_col)
 
-                 # Succeed if XY position is within the defined goal region bounds.
-                 print(f"Hybrid A*: Goal region reached! Planning time: {time.time() - start_time:.3f}s ({nodes_expanded} nodes)")
-                 # Reconstruct the path from the 'came_from' map and return it.
-                 return self.reconstruct_path(came_from, current_discrete, current_state)
+            if is_in_goal_map_region:
+                 print(f"Goal MAP region reached at cell ({current_row_abs}, {current_col_abs})!")
+                 # Reconstruct path - returns waypoints in ROBOT-CENTRIC coordinates
+                 return self.reconstruct_path(came_from, current_discrete, current_state_robot)
 
-
-            # --- 3d. Expand Neighbors (Generate Successors) ---
-            # If not at the goal, explore possible next states by applying motion primitives.
+            # --- Expand Neighbors (calculate next state relative to start)---
             for steering in self.steering_angles:
-                # --- i. Simulate Motion ---
-                # Apply the kinematic model for the current steering angle.
-                next_state = self._simulate_motion(*current_state, steering)
+                # Simulate motion - result is next pose relative to start
+                next_state_robot = self._simulate_motion(*current_state_robot, steering)
+                # Check collision using the robot-centric pose (converts to map cells internally)
+                if not self._is_collision_free(*next_state_robot): continue
 
-                # --- ii. Check Collision ---
-                # Ensure the simulated next state is physically valid (not colliding).
-                if not self._is_collision_free(*next_state):
-                    continue # Skip this steering action, path is blocked.
-
-                # --- iii. Calculate Cost (g_score) ---
-                # The cost to reach the neighbor ('next_state') is the cost to reach the
-                # 'current_state' plus the cost of the motion primitive (step size).
+                # Calculate cost
                 new_cost = current_g_score + self.STEP_SIZE
+                # Get discrete key for the next state (based on absolute map cell)
+                next_discrete = self._discretize_state(*next_state_robot)
 
-                # --- iv. Check if Path is Better ---
-                # Get the discrete representation of the neighbor state.
-                next_discrete = self._discretize_state(*next_state)
-                # Compare the new cost to the best cost found *so far* to reach this 'next_discrete' state.
+                # If this path to next_discrete is better...
                 if new_cost < cost_so_far.get(next_discrete, float('inf')):
-                    # This is a better path! Update records.
-
-                    # Update the minimum cost found to reach 'next_discrete'.
                     cost_so_far[next_discrete] = new_cost
-
-                    # Calculate the f_score (priority) for this neighbor node: f = new_g + h
-                    heuristic_cost = self._heuristic(next_state[0], next_state[1])
+                    # Heuristic calculated from the robot-centric state to relative goal
+                    heuristic_cost = self._heuristic(next_state_robot[0], next_state_robot[1])
                     priority = new_cost + heuristic_cost
-
-                    # Add the neighbor node to the priority queue to be explored later.
-                    heapq.heappush(open_set, (priority, next_state))
-
-                    # Record that we reached 'next_discrete' from 'current_state'.
-                    # Store the parent's discrete and continuous state for path reconstruction.
-                    came_from[next_discrete] = (current_discrete, current_state)
+                    # Push ROBOT-CENTRIC state onto heap
+                    heapq.heappush(open_set, (priority, next_state_robot))
+                    # Record parent (store parent's ROBOT-CENTRIC state)
+                    came_from[next_discrete] = (current_discrete, current_state_robot)
 
         # --- 4. No Path Found ---
-        # If the open set becomes empty, it means we explored all reachable states
-        # without finding a path to the goal region.
         print(f"Warning: Hybrid A* failed to find path after {time.time() - start_time:.3f}s ({nodes_expanded} nodes).")
-        return None # Return None to indicate failure
+        return None
 
 # ==============================================================================
-# Main Planning Function Interface (Use this function from other scripts)
+# Main Planning Function Interface (Simplified)
 # ==============================================================================
 
-# --- Create a default planner instance ---
-# This can be reused across multiple calls if the parameters don't change.
-# Consider making parameters configurable via function arguments if needed.
 default_planner = HybridAStarPlanner(
-    wheelbase=0.3, step_size=0.1, max_steering_angle=0.6, num_steering_angles=5,
+    wheelbase=0.3, step_size=0.1, max_steering_angle=0.6, num_steering_angles=20,
     robot_length=0.4, robot_width=0.3, obstacle_threshold=65, heuristic_weight=1.5
 )
 
-def plan_path_to_goal_region(start_pose, occupancy_map, resolution, origin_x, origin_y, planner=default_planner):
+# --- Simplified High-level function ---
+def plan_path_to_goal_region(
+        start_pose_map,      # DIRECTLY: (row, col, theta_rad)
+        goal_region_map,     # DIRECTLY: (min_r, max_r, min_c, max_c)
+        occupancy_map,       # Map array
+        resolution,          # Meters per cell
+        planner=default_planner):
     """
-    High-level function to plan a path using the Hybrid A* planner towards
-    the hardcoded GOAL region. This function acts as the main interface.
+    Plans path using Hybrid A*. Inputs/Outputs are in MAP coordinates.
+    Uses a robot-centric frame internally.
 
     Args:
-        start_pose (tuple): Current robot pose (x, y, theta) in meters and radians (world frame).
-        occupancy_map (numpy.ndarray): 2D numpy array representing the grid map (0-100 or -1).
-        resolution (float): Map resolution in meters per cell.
-        origin_x (float): World X coordinate of the map's bottom-left corner (cell [0,0]).
-        origin_y (float): World Y coordinate of the map's bottom-left corner (cell [0,0]).
-        planner (HybridAStarPlanner, optional): An existing planner instance. Defaults to 'default_planner'.
+        start_pose_map (tuple): Start pose in MAP coordinates (row, col, theta_radians).
+        goal_region_map (tuple): Goal region in MAP coordinates (min_r, max_r, min_c, max_c).
+        occupancy_map (numpy.ndarray): 2D numpy grid map.
+        resolution (float): Map resolution (meters per cell).
+        planner (HybridAStarPlanner, optional): Existing planner instance.
 
     Returns:
-        list or None: A list of waypoint tuples [(x, y, theta), ...] if a path is found,
-                      otherwise None. This list is the direct output for the controller.
+        list or None: Waypoints [(row, col, theta_rad), ...] in MAP coordinates, or None.
     """
-    print("\n--- New Planning Request ---")
-    if planner is None:
-        print("Error: Planner instance is not provided.")
-        return None
+    print("\n--- New Planning Request (Robot-Centric Interface) ---")
+    if planner is None: print("Error: Planner instance not provided."); return None
 
-    # 1. Update the planner with the latest map information
-    #    This needs to be done for every planning request if the map changes.
+    # 1. Setup planner with map, resolution, and start pose (map coords)
     try:
-        planner.set_map(occupancy_map, resolution, origin_x, origin_y)
-    except ValueError as e:
-        print(f"Error setting map: {e}")
-        return None
+        planner.setup(occupancy_map, resolution, start_pose_map)
+    except ValueError as e: print(f"Error during setup: {e}"); return None
 
-    # 2. Prepare start state (ensure theta is normalized for internal consistency)
-    start_x, start_y, start_theta = start_pose
-    normalized_start = (start_x, start_y, normalize_angle(start_theta))
-    print(f"Planning from normalized start: ({normalized_start[0]:.2f}, {normalized_start[1]:.2f}, {normalized_start[2]:.2f})")
-    print(f"Targeting Goal Region: X=[{GOAL_X_MIN:.2f},{GOAL_X_MAX:.2f}], Y=[{GOAL_Y_MIN:.2f},{GOAL_Y_MAX:.2f}]")
-    # MODIFIED: Removed the print statement about goal orientation as it's ignored
-    # if GOAL_TARGET_THETA is not None: ...
+    # 2. Extract start theta for internal planner
+    start_theta = start_pose_map[2] # Planner starts at (0,0) internally with this theta
 
-    # 3. Call the internal planning method which performs the search
-    waypoints = planner.find_path_internal(normalized_start)
+    # 3. Call internal planner (needs start_theta, map goal)
+    #    This function returns waypoints in ROBOT-CENTRIC coordinates (relative to start)
+    waypoints_robot_frame = planner.find_path_internal(start_theta, goal_region_map)
 
-    # 4. Return the resulting waypoints list (or None)
-    if waypoints:
-        print(f"Planning successful. Returning {len(waypoints)} waypoints.")
+    # 4. Convert resulting ROBOT-CENTRIC waypoints back to absolute MAP coordinates
+    if waypoints_robot_frame:
+        print(f"Planning successful. Converting {len(waypoints_robot_frame)} robot-centric waypoints to map coordinates.")
+        waypoints_map = []
+        start_row = planner.start_row_map
+        start_col = planner.start_col_map
+        res = planner.map_resolution
+        map_h = planner.map_height
+        map_w = planner.map_width
+        try:
+            for x_robot, y_robot, theta_robot in waypoints_robot_frame:
+                # Convert robot frame pose (relative displacement) to absolute map cell
+                wp_row_abs, wp_col_abs = planner._robot_frame_to_map_cell(x_robot, y_robot)
+
+                # Clamp to bounds to ensure valid indices
+                wp_row_abs = max(0, min(map_h - 1, wp_row_abs))
+                wp_col_abs = max(0, min(map_w - 1, wp_col_abs))
+
+                # Append absolute map coordinates (row, col, theta)
+                waypoints_map.append((wp_row_abs, wp_col_abs, theta_robot))
+
+            if not waypoints_map: print("Warning: Conversion resulted in empty path."); return None
+            print(f"Returning {len(waypoints_map)} waypoints in MAP coordinates.")
+            print("--- Planning Request End ---")
+            return waypoints_map
+        except Exception as e:
+            print(f"Error converting robot-centric waypoints to map: {e}"); return None
     else:
-        print("Planning failed.")
-    print("--- Planning Request End ---")
-    return waypoints
-
+        print("Planning failed (internal planner returned None).")
+        print("--- Planning Request End ---")
+        return None
