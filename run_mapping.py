@@ -16,6 +16,7 @@ from lidar_polled import get_lidar_data
 from odom import VESCMotorIntegrator
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Float32MultiArray
+from vicon_bridge import Vicon
 
 # Global storage for incoming messages
 latest_pose = None
@@ -62,8 +63,6 @@ def visualise_grid(prob_grid, title="Occupancy grid"):
     plt.show()
 
 def main():
-    occ_node = OccupancyGridMapping()
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip_mapping", action="store_true",
                         help="Use last saved map; skip SLAM")
@@ -89,31 +88,48 @@ def main():
     rospy.Subscriber('/icp_estimated_pose', PoseStamped, pose_callback)
     # rospy.Subscriber('/raw_lidar_points', Float32MultiArray, lidar_callback)
 
-    occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
+    occupancy_node = OccupancyGridMapping() 
     height_gc, width_gc = occupancy_node.log_odds.shape
     grid = np.zeros((height_gc, width_gc), dtype=np.int8)
 
 # rate = rospy.Rate(10)
     poses_list= []
+    gt_tracker = Vicon()
+    gt_origin = gt_tracker.get_pose()
     # print(latest_pose, latest_lidar)
     lidar_data, raw_data = get_lidar_data("scan")
     # print(raw_data)
+    hz_const = 10
+    iterct = 0
+    prev_time = time.time()
     try:
         rospy.loginfo("[run_auto] Mapping - drive the vehicle, Ctrl-C when done …")
         while not rospy.is_shutdown():
+            if iterct % hz_const == 0:
+                print(f'running at {hz_const/ (time.time() - prev_time)}')
+                prev_time = time.time()
+            lidar_data, raw_data = get_lidar_data("scan")
+            latest_pose = 1
             if latest_pose is not None and raw_data is not None:
-                x, y, theta = latest_pose
+                # x, y, theta = latest_pose
+                act_pose = gt_tracker.get_pose()
+                act_pose[0] = act_pose[0] - gt_origin[0]
+                act_pose[1] = act_pose[1] - gt_origin[1]
+                act_pose[2] = act_pose[2] - gt_origin[2]
+                x, y, theta = act_pose
+
                 occupancy_node.update_map(x, y, theta, raw_data)
                 poses_list.append([x, y, theta])
                 # map = occupancy_node.get_probability_map()
                 # im.set_data(map)
 
                 row, col = occupancy_node.world_to_map(x, y)
-    except:
+                iterct += 1;
+    except KeyboardInterrupt:
         print("wxltpg")
     rospy.loginfo("[run_auto] Mapping ended by user → saving grid …")
     print("saving map")
-    prob_map = occ_node.get_probability_map()
+    prob_map = occupancy_node.get_probability_map()
     np.save(MAP_PATH, prob_map)
     poses_arr = np.asarray(poses_list, dtype=np.float32)
     poses_path = MAP_DIR / "pose_trace.npy"

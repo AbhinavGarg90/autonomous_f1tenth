@@ -68,7 +68,7 @@ def main():
     plt.figure("Occupancy grid + path")
     plt.imshow(
         prob_grid,
-        cmap="viridis",
+        cmap="gray",
         vmin=0,
         vmax=100,
         origin="upper",

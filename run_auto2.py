@@ -13,6 +13,7 @@ from ICP import ICPLocalizer
 from GridComp import OccupancyGridMapping
 from lidar_polled import get_lidar_data
 from odom import VESCMotorIntegrator
+from turning import SteeringIntegrator
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Float32MultiArray
 
@@ -85,7 +86,7 @@ def main():
         gt_tracker = CarPoseTracker()
     else:
         from vicon_bridge import Vicon
-        gt_tracker = Vicon()
+        # gt_tracker = Vicon()
 
 
     # ─────────────────── Either build a map or load one ─────────────────────
@@ -104,8 +105,9 @@ def main():
 
         rospy.loginfo("[run_auto] Mapping - drive the vehicle, Ctrl-C when done …")
         vesc = VESCMotorIntegrator()
+        steering = SteeringIntegrator
         est_pose = [0, 0, 0]
-        gt_origin = gt_tracker.get_pose()
+        # gt_origin = gt_tracker.get_pose()
         poses_list= []
         hz_const = 10
         iterct = 0
@@ -114,10 +116,11 @@ def main():
             # rate = rospy.Rate(40)
             while not rospy.is_shutdown():
                 if iterct % hz_const == 0:
-                    # print(f'running at {hz_const/ (time.time() - prev_time)}')
+                    print(f'running at {hz_const/ (time.time() - prev_time)}')
                     prev_time = time.time()
                 scan, raw = get_lidar_data(lidar_topic)
                 est_pose[2] = icp.update(scan)[2]
+                angle = steering.
                 est_pose = vesc.integrate_pose(est_pose)
                 
                 pose_msg = PoseStamped()
@@ -130,7 +133,7 @@ def main():
                 pose_msg.pose.orientation.w = np.cos(est_pose[2]/2.0)
                 pose_pub.publish(pose_msg)
 
-                flat_lidar = np.array(raw_data.ranges, dtype=np.float32)
+                flat_lidar = np.array(raw_data[1], dtype=np.float32)
                 lidar_msg = Float32MultiArray()
                 lidar_msg.data = flat_lidar.tolist()
                 lidar_pub.publish(lidar_msg)

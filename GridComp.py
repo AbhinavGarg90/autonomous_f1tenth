@@ -103,36 +103,19 @@ class OccupancyGridMapping:
 
     def update(self, robot_pose, scan):
         """ Update the occupancy grid using the robot's current pose and a LIDAR scan. """
+        angles = scan[0]
+        ranges = scan[1]
+        num_beams = len(angles)
         rx, ry, rtheta = robot_pose
-
-        # starting angle
-        angle_min = scan.angle_min
-        # Retrieve the angular difference between consecutive laser beams in the scan
-        angle_increment = scan.angle_increment
-        # Convert the list of range measurements from the LaserScan into a NumPy array for easier manipulation
-        ranges = np.array(scan.ranges)
-        # Determine the number of laser beams in the scan data
-        num_beams = len(ranges)
-        # Compute an array of angles corresponding to each laser beam in the scan,
-        angles = angle_min + np.arange(num_beams) * angle_increment
-
+        assert len(angles) == len(ranges)
 
         for i in range(num_beams):
 
             r = ranges[i]
 
-            if np.isnan(r) or r < scan.range_min:  # INVALID : discard beam for now
-                continue
-
-            if r > scan.range_max or np.isinf(r):
-                r   = scan.range_max               # cast to max range
-                hit = False                       
-            else:
-                r   = r                           # valid hit
-                hit = True
-
             # Convert the beam angle from the sensor frame to the world frame by adding the robot's orientation
             beam_angle = rtheta + angles[i]
+            hit = True
 
             # Compute end point of the beam in world coordinates
             x_end = rx + r * math.cos(beam_angle)
@@ -168,18 +151,6 @@ class OccupancyGridMapping:
         binary = (prob > 0.5).astype(np.int8)
         return prob_scaled
     
-    def publish_map(self, stamp=None):
-        """ Publish the occupancy grid as a nav_msgs/OccupancyGrid. """
-        if stamp is None:
-            stamp = rospy.Time.now()
-        self.map_msg.header.stamp = stamp
-
-        # Get the probability grid [0–100] and flatten in row-major order
-        prob = self.get_probability_map()
-        self.map_msg.data = prob.flatten().tolist()
-
-        self.map_pub.publish(self.map_msg)
-    
     # def update_map(self, x, y, theta, scan_msg):
     #     self.robot_pose = (x, y, theta)
     #     self.update(self.robot_pose, scan_msg)
@@ -187,7 +158,6 @@ class OccupancyGridMapping:
         """Call this from your subscriber callback to update & immediately publish."""
         self.robot_pose = (x, y, theta)
         self.update(self.robot_pose, scan_msg)
-        self.publish_map(scan_msg.header.stamp)
 
 
 def main():

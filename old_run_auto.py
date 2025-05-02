@@ -80,7 +80,7 @@ def main():
         gt_tracker = CarPoseTracker()
     else:
         from vicon_bridge import Vicon
-        gt_tracker = Vicon()
+        # gt_tracker = Vicon()
 
 
     # ─────────────────── Either build a map or load one ─────────────────────
@@ -100,7 +100,7 @@ def main():
         rospy.loginfo("[run_auto] Mapping - drive the vehicle, Ctrl-C when done …")
         vesc = VESCMotorIntegrator()
         est_pose = [0, 0, 0]
-        gt_origin = gt_tracker.get_pose()
+        # gt_origin = gt_tracker.get_pose()
         poses_list= []
         hz_const = 10
         iterct = 0
