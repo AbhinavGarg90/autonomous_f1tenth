@@ -109,7 +109,6 @@ def main():
                 print(f'running at {hz_const/ (time.time() - prev_time)}')
                 prev_time = time.time()
             lidar_data, raw_data = get_lidar_data("/scan")
-            latest_pose = 1
             if latest_pose is not None and raw_data is not None:
                 x, y, theta = latest_pose
                 '''
@@ -126,9 +125,10 @@ def main():
                 # im.set_data(map)
 
                 row, col = occupancy_node.world_to_map(x, y)
-                iterct += 1;
+                iterct += 1
+
     except KeyboardInterrupt:
-        print("wxltpg")
+        print("xekjhfeshfljkdsljlfksjlkgslk")
     rospy.loginfo("[run_auto] Mapping ended by user → saving grid …")
     print("saving map")
     prob_map = occupancy_node.get_probability_map()
@@ -140,7 +140,7 @@ def main():
 
     if args.map_only:
         rospy.loginfo("[run_auto] --map_only flag set ⇒ exiting before planning")
-        return
+    return
 
 if __name__ == '__main__':
     main()

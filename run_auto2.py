@@ -91,7 +91,6 @@ def main():
         from vicon_bridge import Vicon
         # gt_tracker = Vicon()
 
-
     # ─────────────────── Either build a map or load one ─────────────────────
     if args.skip_mapping:
         if not MAP_PATH.exists():
@@ -111,12 +110,11 @@ def main():
         iterct = 0
         prev_time = time.time()
         pose_intgr = PoseIntegrator()
-        print("hi")
         try:
             # rate = rospy.Rate(40)
             while not rospy.is_shutdown():
                 if iterct % hz_const == 0:
-                    print(f'running at {hz_const/ (time.time() - prev_time)}')
+                    # print(f'running at {hz_const/ (time.time() - prev_time)}')
                     prev_time = time.time()
                 
                 time.sleep(0.05)
