@@ -20,12 +20,12 @@ def main():
     parser.add_argument(
         "--map_name",
         default="occ_grid.npy",
-        help="Grid filename inside saved_maps/ (default: occ_grid.npy)",
+        help="Grid filename inside saved_map/ (default: occ_grid.npy)",
     )
     parser.add_argument(
         "--pose_name",
         default="pose_trace.npy",
-        help="Pose trace filename inside saved_maps/ (default: pose_trace.npy)",
+        help="Pose trace filename inside saved_map/ (default: pose_trace.npy)",
     )
     parser.add_argument(
         "--resolution",
@@ -48,8 +48,8 @@ def main():
     args = parser.parse_args()
 
     pkg_dir = Path(__file__).resolve().parent
-    map_path = pkg_dir / "saved_maps" / args.map_name
-    pose_path = pkg_dir / "saved_maps" / args.pose_name
+    map_path = pkg_dir / "saved_map" / args.map_name
+    pose_path = pkg_dir / "saved_map" / args.pose_name
 
     if not map_path.exists():
         print(f"[viewer] grid file not found: {map_path}")

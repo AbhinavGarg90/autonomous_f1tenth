@@ -53,12 +53,12 @@ def main():
     parser.add_argument("--csv_name", default="xyhead_demo_pp.csv",
                         help="Way-point CSV inside waypoints/ (default)")
     parser.add_argument("--map_name", default="occ_grid.npy",
-                        help="Filename inside saved_maps/ for grid serialisation")
+                        help="Filename inside saved_map/ for grid serialisation")
     args, _ = parser.parse_known_args()
 
     # Directories -------------------------------------------------------------
     PKG_DIR  = Path(__file__).resolve().parent
-    MAP_DIR  = PKG_DIR / "saved_maps"; MAP_DIR.mkdir(exist_ok=True)
+    MAP_DIR  = PKG_DIR / "saved_map"; MAP_DIR.mkdir(exist_ok=True)
     CSV_DIR  = PKG_DIR / "waypoints";  CSV_DIR.mkdir(exist_ok=True)
     MAP_PATH = MAP_DIR / args.map_name
 
