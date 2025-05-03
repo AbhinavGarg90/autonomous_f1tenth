@@ -12,7 +12,7 @@ class PoseIntegrator():
         self.y += dy
 
     def update_theta(self, dtheta_icp, dtheta_steering):
-        self.theta += dtheta_steering
+        self.theta += dtheta_icp
     
     def get_pose(self):
         return (self.x, self.y, self.theta)

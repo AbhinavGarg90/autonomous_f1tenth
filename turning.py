@@ -5,6 +5,6 @@ L = 0.325
 turning_0 = 0.53
 def turning_dtheta(steering, velocity, dt):
     delta = steering.data - turning_0 # steering angle in radians + standardize
-    d_theta = (velocity / L) * math.tan(delta) * dt
-    print(delta, d_delta)
+    d_theta = (velocity / L) * math.tan(delta) * 0.1 #dt
+    print(steering, velocity, dt, delta, d_theta)
     return d_theta
