@@ -1,5 +1,6 @@
 import numpy as np
 
+gain = 5.0
 
 class PoseIntegrator():
     def __init__(self):
@@ -15,7 +16,7 @@ class PoseIntegrator():
         self.theta += dtheta_icp
     
     def get_pose(self):
-        return (self.x, self.y, self.theta)
+        return (gain*self.x, gain*self.y, self.theta)
 
 def get_dxdy(velocity, theta, dt):
     """

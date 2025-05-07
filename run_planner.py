@@ -5,7 +5,7 @@ import os
 import csv
 
 
-occupancy_map = np.load('saved_map/fixed_shitty_map_possibly')
+occupancy_map = np.load('saved_map/occ_grid.npy')
 map_height, map_width = occupancy_map.shape
 
 # 2. Define map resolution

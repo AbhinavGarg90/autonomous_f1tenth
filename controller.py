@@ -45,7 +45,7 @@ class PurePursuit(object):
         self.rate = rospy.Rate(50)
         self.drive_msg = AckermannDriveStamped()
         self.drive_msg.header.frame_id = "f1tenth_control"
-        self.drive_msg.drive.speed     = 1.3 # m/s, reference speed
+        self.drive_msg.drive.speed     = 1.0 # m/s, reference speed
 
         self.vicon_sub = rospy.Subscriber('/icp_estimated_pose', PoseStamped,  self.pose_callback )
         self.x   = 0
@@ -58,7 +58,7 @@ class PurePursuit(object):
         
     def pose_callback(self,msg):    
         self.x = msg.pose.position.x,
-        self.y = msg.pose.position.y,
+        self.y = -msg.pose.position.y,
         self.yaw = 2 * np.arctan2(msg.pose.orientation.z, msg.pose.orientation.w)  # extract yaw
         # print(self.x, self.y, self.yaw)
             
@@ -82,14 +82,14 @@ class PurePursuit(object):
 
         # heading to yaw (degrees to radians)
         # heading is calculated from two GNSS antennas
-        curr_yaw = np.radians(self.yaw)
+        curr_yaw = self.yaw
 
         # reference point is located at the center of rear axle
         curr_x = self.x - self.offset * np.cos(curr_yaw)
         curr_y = self.y - self.offset * np.sin(curr_yaw)
-        print("Curr x: ", curr_x, " Curr y: ", curr_y)
+        print("Curr x: ", curr_x, " Curr y: ", curr_y, "Curr yaw: ", curr_yaw)
 
-        return np.round(curr_x, 3), np.round(curr_y, 3), np.round(curr_yaw, 4)
+        return np.round(curr_x, 3), np.round(curr_y, 3), np.round(self.yaw, 4)
 
     # find the angle bewtween two vectors    
     def find_angle(self, v1, v2):
@@ -137,7 +137,7 @@ class PurePursuit(object):
             alpha = np.radians(self.path_points_yaw_record[self.goal]) - curr_yaw
 
             # ----------------- tuning this part as needed -----------------
-            k       = 0.2
+            k       = 0.6
             angle_i = math.atan((k * 2 * self.wheelbase * math.sin(alpha)) / L) 
             angle   = angle_i*2
             # ----------------- tuning this part as needed -----------------
@@ -156,6 +156,7 @@ class PurePursuit(object):
             self.drive_msg.header.stamp = rospy.get_rostime()
             self.drive_msg.drive.steering_angle = f_delta
             self.ctrl_pub.publish(self.drive_msg)
+            print(self.drive_msg)
         
             self.rate.sleep()
 
