@@ -126,7 +126,9 @@ def main():
                 dx, dy = get_dxdy(velocity, pose_intgr.theta, dt)
                 pose_intgr.update_position(dx, dy)
                 est_pose = pose_intgr.get_pose()
-                print(est_pose)
+                # act_pose = gt_tracker.get_pose()
+                # act_pose = np.array(act_pose) - np.array(gt_origin)
+                # print(act_pose)
                 
                 pose_msg = PoseStamped()
                 pose_msg.header.stamp = rospy.Time.now()

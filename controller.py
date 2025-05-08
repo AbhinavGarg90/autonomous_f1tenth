@@ -45,7 +45,7 @@ class PurePursuit(object):
         self.rate = rospy.Rate(50)
         self.drive_msg = AckermannDriveStamped()
         self.drive_msg.header.frame_id = "f1tenth_control"
-        self.drive_msg.drive.speed     = 1.0 # m/s, reference speed
+        self.drive_msg.drive.speed     = 0.6 # m/s, reference speed
 
         self.vicon_sub = rospy.Subscriber('/icp_estimated_pose', PoseStamped,  self.pose_callback )
         self.x   = 0
@@ -82,7 +82,7 @@ class PurePursuit(object):
 
         # heading to yaw (degrees to radians)
         # heading is calculated from two GNSS antennas
-        curr_yaw = self.yaw
+        curr_yaw = -self.yaw
 
         # reference point is located at the center of rear axle
         curr_x = self.x - self.offset * np.cos(curr_yaw)
@@ -117,17 +117,24 @@ class PurePursuit(object):
 
             # finding those points which are less than the look ahead distance (will be behind and ahead of the vehicle)
             goal_arr = np.where((self.dist_arr < self.look_ahead + 0.05) & (self.dist_arr > self.look_ahead - 0.05))[0]
+            print(self.dist_arr)
+            goal_arr = np.arange(len(self.dist_arr))
 
             # finding the goal point which is the last in the set of points less than the lookahead distance
             for idx in goal_arr:
-                v1 = [float(self.path_points_x[idx])-curr_x , float(self.path_points_y[idx])-curr_y]
-                v1 = np.concatenate(v1)
+                print(self.path_points_x[idx], self.path_points_y[idx])
+                v1 = np.array([float(self.path_points_x[idx])-curr_x , float(self.path_points_y[idx])-curr_y]).reshape(2)
+                print(v1)
+                # v1 = np.concatenate(v1)
                 v2 = [np.cos(curr_yaw), np.sin(curr_yaw)]
                 temp_angle = self.find_angle(v1,v2)
+                self.goal = idx
                 # find correct look-ahead point by using heading information
+                '''
                 if abs(temp_angle) < np.pi/2:
                     self.goal = idx
                     break
+                '''
 
             # finding the distance between the goal point and the vehicle
             # true look-ahead distance between a waypoint and current position
@@ -137,7 +144,7 @@ class PurePursuit(object):
             alpha = np.radians(self.path_points_yaw_record[self.goal]) - curr_yaw
 
             # ----------------- tuning this part as needed -----------------
-            k       = 0.6
+            k       = 1
             angle_i = math.atan((k * 2 * self.wheelbase * math.sin(alpha)) / L) 
             angle   = angle_i*2
             # ----------------- tuning this part as needed -----------------

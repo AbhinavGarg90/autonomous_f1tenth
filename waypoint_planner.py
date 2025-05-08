@@ -35,7 +35,7 @@ class HybridAStarPlanner:
     Input/Output uses absolute map coordinates.
     """
     def __init__(self, wheelbase, step_size, max_steering_angle, num_steering_angles,
-                 obstacle_threshold=65, robot_length=0.4, robot_width=0.3,
+                 obstacle_threshold=65, robot_length=0.5, robot_width= 1.2,
                  num_angle_bins=72, heuristic_weight=1.0):
 
         # --- Robot & Planning Parameters ---
@@ -330,7 +330,7 @@ class HybridAStarPlanner:
 
 default_planner = HybridAStarPlanner(
     wheelbase=0.3, step_size=0.2, max_steering_angle=0.6, num_steering_angles=20,
-    robot_length=0.4, robot_width=0.3, obstacle_threshold=65, heuristic_weight=1.5
+    robot_length=0.5, robot_width=0.45, obstacle_threshold=65, heuristic_weight=1.5
 )
 
 # --- Simplified High-level function ---

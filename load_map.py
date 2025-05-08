@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the numpy array from the file
-occ_grid = np.load('saved_map/fixed_shitty_map_possibly')
+occ_grid = np.load('saved_map/L_hallway.npy')
 
 # Verify the shape
 print("Shape of loaded array:", occ_grid.shape)
