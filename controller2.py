@@ -92,7 +92,7 @@ class PurePursuit(object):
         self.y = msg.pose.position.y
         q = msg.pose.orientation
         # Robust yaw extraction
-        self.yaw = - math.atan2(
+        self.yaw = math.atan2(
             2.0 * (q.w * q.z + q.x * q.y),
             1.0 - 2.0 * (q.y * q.y + q.z * q.z),
         )

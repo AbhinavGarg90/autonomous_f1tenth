@@ -53,7 +53,6 @@ class VehicleController():
         # reference point is located at the center of rear axle
         curr_x = self.x - self.offset * np.cos(curr_yaw)
         curr_y = self.y - self.offset * np.sin(curr_yaw)
-        print("Curr x: ", curr_x, " Curr y: ", curr_y, "Curr yaw: ", curr_yaw)
 
         return np.round(curr_x, 3), np.round(curr_y, 3), np.round(self.yaw, 4)
 
@@ -61,17 +60,14 @@ class VehicleController():
         # read recorded GPS lat, lon, heading
         dirname  = "waypoints_in_csv"
         filename = os.path.join(dirname, "waypoints_world.csv")  #jay is sure the slash is needed 
-        print(filename)
         with open(filename) as f:
             path_points = [tuple(line) for line in csv.reader(f)]
             path_points = [(float(x), float(y), float(theta)) for x, y, theta in path_points]
-            print(path_points)
         # x towards East and y towards North
         # self.path_points_x_record   = [float(point[0]) for point in path_points] # x
         # self.path_points_y_record   = [float(point[1]) for point in path_points] # y
         # self.path_points_yaw_record = [float(point[2]) for point in path_points] # yaw
         self.waypoints = path_points
-        print(path_points)
 
     # Task 3: Lateral Controller (Pure Pursuit)
     def pure_pursuit_lateral_controller(self, curr_x, curr_y, curr_yaw, future_unreached_waypoints ,curr_vel):
@@ -164,7 +160,7 @@ class VehicleController():
 
         curr_pose = self.get_f1tenth_state()
         curr_x, curr_y, curr_yaw = curr_pose
-        curr_vel = 1.0 # TODO: might fuck things up
+        curr_vel = 0.6 # TODO: might fuck things up
 
         target_velocity = 1.0
         future_unreached_waypoints = self.get_closest_waypoint(curr_pose, self.waypoints)
@@ -173,6 +169,8 @@ class VehicleController():
         self.drive_msg.header.stamp = rospy.get_rostime()
         self.drive_msg.drive.steering_angle = target_steering
         self.ctrl_pub.publish(self.drive_msg)
+        print("Curr x: ", curr_x, " Curr y: ", curr_y, "Curr yaw: ", curr_yaw)
+        print("Target ", future_unreached_waypoints[0])
         print(self.drive_msg)
         return
 

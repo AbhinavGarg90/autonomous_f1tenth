@@ -26,8 +26,8 @@ print(f"Start pose (Map Coords): (row={start_row}, col={start_col}, theta={start
 
 goal_min_row = 393
 goal_max_row = 397
-goal_min_col = 344
-goal_max_col = 346
+goal_min_col = 348
+goal_max_col = 352
 goal_region_map = (goal_min_row, goal_max_row, goal_min_col, goal_max_col)
 print(f"Goal region (Map Coords): Rows=[{goal_min_row}-{goal_max_row}], Cols=[{goal_min_col}-{goal_max_col}]")
 

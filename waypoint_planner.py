@@ -329,7 +329,7 @@ class HybridAStarPlanner:
 # ==============================================================================
 
 default_planner = HybridAStarPlanner(
-    wheelbase=0.3, step_size=0.2, max_steering_angle=0.6, num_steering_angles=20,
+    wheelbase=0.3, step_size=0.2, max_steering_angle=0.35, num_steering_angles=20,
     robot_length=0.5, robot_width=0.45, obstacle_threshold=65, heuristic_weight=1.5
 )
 
