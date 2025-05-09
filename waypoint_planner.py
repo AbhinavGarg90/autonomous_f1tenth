@@ -1,33 +1,15 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
-# -------------------------
-# Standalone Hybrid A* Planner Module (Robot-Centric Frame)
-# Author: Rahul's Team + ChatGPT Modifications
-# Description: Plans a path given map, start (map coords), and goal (map coords).
-#              Operates internally relative to the start pose (0,0,theta).
-#              Outputs waypoints in absolute MAP coordinates (row, col, theta).
-# -------------------------
 
 import numpy as np
 import math
 import heapq
 import time
 
-# ==============================================================================
-# Utility Functions (Standalone - No ROS)
-# ==============================================================================
 
-# No map_to_world needed externally, as internal frame is robot-centric.
-# world_to_map is handled internally by the class using start reference.
 
 def normalize_angle(angle):
     """Normalizes angle to [-pi, pi]."""
     return math.atan2(math.sin(angle), math.cos(angle))
-
-# ==============================================================================
-# Hybrid A* Planner Class (Robot-Centric Frame)
-# ==============================================================================
 
 class HybridAStarPlanner:
     """
@@ -81,7 +63,7 @@ class HybridAStarPlanner:
 
         print("Hybrid A* Planner Initialized (Robot-Centric).")
 
-    # --- NEW: Internal coordinate conversion helper ---
+  
     def _robot_frame_to_map_cell(self, x_robot, y_robot):
         """
         Converts robot-centric coordinates (meters relative to start)
@@ -99,7 +81,7 @@ class HybridAStarPlanner:
 
         return current_row, current_col
 
-    # --- NEW: Setup function ---
+
     def setup(self, occupancy_map, resolution, start_pose_map):
         """Stores map, resolution, and start pose map coordinates."""
         if not isinstance(occupancy_map, np.ndarray) or occupancy_map.ndim != 2:
@@ -324,13 +306,11 @@ class HybridAStarPlanner:
         print(f"Warning: Hybrid A* failed to find path after {time.time() - start_time:.3f}s ({nodes_expanded} nodes).")
         return None
 
-# ==============================================================================
-# Main Planning Function Interface (Simplified)
-# ==============================================================================
+
 
 default_planner = HybridAStarPlanner(
     wheelbase=0.3, step_size=0.2, max_steering_angle=0.35, num_steering_angles=20,
-    robot_length=0.5, robot_width=0.45, obstacle_threshold=65, heuristic_weight=1.5
+    robot_length=0.5, robot_width=0.78, obstacle_threshold=65, heuristic_weight=1.5
 )
 
 # --- Simplified High-level function ---
@@ -340,20 +320,7 @@ def plan_path_to_goal_region(
         occupancy_map,       # Map array
         resolution,          # Meters per cell
         planner=default_planner):
-    """
-    Plans path using Hybrid A*. Inputs/Outputs are in MAP coordinates.
-    Uses a robot-centric frame internally.
 
-    Args:
-        start_pose_map (tuple): Start pose in MAP coordinates (row, col, theta_radians).
-        goal_region_map (tuple): Goal region in MAP coordinates (min_r, max_r, min_c, max_c).
-        occupancy_map (numpy.ndarray): 2D numpy grid map.
-        resolution (float): Map resolution (meters per cell).
-        planner (HybridAStarPlanner, optional): Existing planner instance.
-
-    Returns:
-        list or None: Waypoints [(row, col, theta_rad), ...] in MAP coordinates, or None.
-    """
     print("\n--- New Planning Request (Robot-Centric Interface) ---")
     if planner is None: print("Error: Planner instance not provided."); return None
 

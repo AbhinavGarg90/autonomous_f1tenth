@@ -5,7 +5,7 @@ import os
 import csv
 
 
-occupancy_map = np.load('saved_map/L_hallway.npy')
+occupancy_map = np.load('saved_map/final_demo1.npy')
 map_height, map_width = occupancy_map.shape
 
 # 2. Define map resolution
@@ -24,10 +24,10 @@ print(f"Start pose (Map Coords): (row={start_row}, col={start_col}, theta={start
 
 # 4. Define GOAL region DIRECTLY in MAP coordinates (min_row, max_row, min_col, max_col)
 
-goal_min_row = 393
-goal_max_row = 397
-goal_min_col = 348
-goal_max_col = 352
+goal_min_row = 575
+goal_max_row = 580
+goal_min_col = 290
+goal_max_col = 295
 goal_region_map = (goal_min_row, goal_max_row, goal_min_col, goal_max_col)
 print(f"Goal region (Map Coords): Rows=[{goal_min_row}-{goal_max_row}], Cols=[{goal_min_col}-{goal_max_col}]")
 

@@ -30,6 +30,24 @@ def pose_callback(msg):
         2 * np.arctan2(msg.pose.orientation.z, msg.pose.orientation.w)  # extract yaw
     )
 
+occupancy_node = OccupancyGridMapping(origin_x_wc=0) 
+height_gc, width_gc = occupancy_node.log_odds.shape
+grid = np.zeros((height_gc, width_gc), dtype=np.int8) # setting appropriate grid size for imshow
+# Setup plot
+fig, ax = plt.subplots()
+im = ax.imshow(grid, cmap='viridis', vmin=0, vmax=100, interpolation='none')
+
+robot_dot = ax.scatter([],[],marker='^',s=60,c = 'red' )
+robot_dot_gt = ax.scatter([],[],marker='^',s=60,c = 'green' )
+
+# Add grid lines between cells
+ax.set_xticks(np.arange(-0.5, 200, 1), minor=True)
+ax.set_yticks(np.arange(-0.5, 200, 1), minor=True)
+ax.grid(which='minor', color='white', linestyle='-', linewidth=0.1)
+ax.tick_params(which='minor', bottom=False, left=False)
+ax.set_xticks([])
+ax.set_yticks([])
+
 # def lidar_callback(msg):
 #     global latest_lidar
 #     data = np.array(msg.data, dtype=np.float32)
@@ -94,8 +112,8 @@ def main():
 
 # rate = rospy.Rate(10)
     poses_list= []
-    # gt_tracker = Vicon()
-    # gt_origin = gt_tracker.get_pose()
+    gt_tracker = Vicon()
+    gt_origin = gt_tracker.get_pose()
     # print(latest_pose, latest_lidar)
     lidar_data, raw_data = get_lidar_data("/scan")
     # print(raw_data)
@@ -111,21 +129,25 @@ def main():
             lidar_data, raw_data = get_lidar_data("/scan")
             if latest_pose is not None and raw_data is not None:
                 x, y, theta = latest_pose
-                '''
                 act_pose = gt_tracker.get_pose()
                 act_pose[0] = act_pose[0] - gt_origin[0]
                 act_pose[1] = act_pose[1] - gt_origin[1]
                 act_pose[2] = act_pose[2] - gt_origin[2]
                 x, y, theta = act_pose
-                '''
 
                 occupancy_node.update_map(x, y, theta, raw_data)
                 poses_list.append([x, y, theta])
-                # map = occupancy_node.get_probability_map()
-                # im.set_data(map)
+                map = occupancy_node.get_probability_map()
+                im.set_data(map)
 
                 row, col = occupancy_node.world_to_map(x, y)
                 iterct += 1
+                
+                map_pose = est_pose
+                row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
+                row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+                robot_dot.set_offsets([[col,row]])
+                robot_dot_gt.set_offsets([[col_gt,row_gt]])
 
     except KeyboardInterrupt:
         print("xekjhfeshfljkdsljlfksjlkgslk")

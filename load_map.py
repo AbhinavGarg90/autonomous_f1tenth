@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the numpy array from the file
-occ_grid = np.load('saved_map/L_hallway.npy')
+occ_grid = np.load('saved_map/final_demo1.npy')
 
 # Verify the shape
 print("Shape of loaded array:", occ_grid.shape)
@@ -14,7 +14,7 @@ print("Shape of loaded array:", occ_grid.shape)
 plt.figure(figsize=(12, 12))
 plt.imshow(occ_grid, cmap='gray', origin='lower', vmin=0, vmax=100)
 plt.colorbar(label='Occupancy Probability (0-100)')
-plt.title('Occupancy Grid Visualization (Region 250-350)')
+plt.title('Occupancy Grid Visualization')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(False)

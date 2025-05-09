@@ -27,7 +27,7 @@ class VehicleController():
         self.ctrl_pub  = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
         self.drive_msg = AckermannDriveStamped()
         self.drive_msg.header.frame_id = "f1tenth_control"
-        self.drive_msg.drive.speed     = 1.0 # m/s, reference speed
+        self.drive_msg.drive.speed     = 0.6 # m/s, reference speed
 
         self.vicon_sub = rospy.Subscriber('/icp_estimated_pose', PoseStamped,  self.pose_callback )
         self.x   = 0
@@ -143,13 +143,13 @@ class VehicleController():
 
     def get_closest_waypoint(self, curr_pose, waypoints_list):
         goal_idx = self.goal_idx
-        limit = 0.1
+        limit = 0.25
         if self.euclidian_dist(curr_pose, waypoints_list[goal_idx]) < limit:
             self.goal_idx = goal_idx + 1
         return waypoints_list[goal_idx:]
         
 
-    def execute(self):
+    def execute(self, i):
         # Compute the control input to the vehicle according to the
         # current and reference pose of the vehicle
         # Input:
@@ -169,13 +169,16 @@ class VehicleController():
         self.drive_msg.header.stamp = rospy.get_rostime()
         self.drive_msg.drive.steering_angle = target_steering
         self.ctrl_pub.publish(self.drive_msg)
-        print("Curr x: ", curr_x, " Curr y: ", curr_y, "Curr yaw: ", curr_yaw)
-        print("Target ", future_unreached_waypoints[0])
-        print(self.drive_msg)
+        if i % 10000 == 0:
+            print("Curr x: ", curr_x, " Curr y: ", curr_y, "Curr yaw: ", curr_yaw)
+            print("Target ", future_unreached_waypoints[0])
+            print("target steering", target_steering)
         return
 
 if __name__ == '__main__':
     rospy.init_node('vicon_pp_node', anonymous=True)
     controller = VehicleController()
+    i = 0
     while not rospy.is_shutdown():
-        controller.execute()
+        controller.execute(i)
+        i+= 1

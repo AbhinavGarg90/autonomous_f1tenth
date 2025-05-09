@@ -1,0 +1,180 @@
+Curr x:  -0.15  Curr y:  0.0 Curr yaw:  0
+Target  (0.2, 0.0, -0.243352)
+target steering -0.1363089247045141
+Curr x:  [-0.15]  Curr y:  [-0.001] Curr yaw:  0.0039
+Target  (0.2, 0.0, -0.243352)
+target steering -0.1381934083334962
+Curr x:  [0.292]  Curr y:  [-0.011] Curr yaw:  -0.0898
+Target  (0.6, -0.2, -0.243352)
+target steering 0.0033063700095364895
+Curr x:  [0.996]  Curr y:  [-0.073] Curr yaw:  0.1262
+Target  (1.3, 0.0, 0.540866)
+target steering 0.03349248689547008
+Curr x:  [1.759]  Curr y:  [0.047] Curr yaw:  0.1958
+Target  (2.1, 0.1, 0.016157)
+target steering -0.02621845359270233
+Curr x:  [2.464]  Curr y:  [0.178] Curr yaw:  0.1048
+Target  (2.9, 0.2, 0.016157)
+target steering -0.12125228986413161
+Curr x:  [3.314]  Curr y:  [0.151] Curr yaw:  -0.2461
+Target  (3.7, 0.0, -0.488425)
+target steering -0.05810263399252436
+Curr x:  [4.246]  Curr y:  [-0.111] Curr yaw:  -0.1536
+Target  (4.5, -0.2, 0.091996)
+target steering 0.33204798013639936
+Curr x:  [5.029]  Curr y:  [0.02] Curr yaw:  0.7732
+Target  (5.2, 0.4, 1.092089)
+target steering 0.31731024145835374
+Curr x:  [5.382]  Curr y:  [0.573] Curr yaw:  1.4838
+Target  (5.3, 1.0, 1.76784)
+target steering 0.17582070764344868
+Curr x:  [5.35]  Curr y:  [1.352] Curr yaw:  1.7777
+Target  (5.2, 1.7, 1.592786)
+target steering -0.0353202285561432
+Curr x:  [5.145]  Curr y:  [2.45] Curr yaw:  1.7017
+Target  (5.1, 2.7, 1.605068)
+target steering -0.05578074822032842
+Curr x:  [5.064]  Curr y:  [3.43] Curr yaw:  1.5671
+Target  (5.1, 3.7, 1.61234)
+target steering -0.02107313933891108
+Curr x:  [5.067]  Curr y:  [4.208] Curr yaw:  1.6254
+Target  (5.1, 4.5, 1.587742)
+target steering 0.009341236349680352
+Curr x:  [5.008]  Curr y:  [5.047] Curr yaw:  1.6285
+Target  (5.0, 5.3, 1.563178)
+target steering -0.03228536906247932
+Curr x:  [4.994]  Curr y:  [5.754] Curr yaw:  1.4887
+Target  (5.0, 6.1, 1.513882)
+target steering 0.05161703375019189
+Curr x:  [5.034]  Curr y:  [6.635] Curr yaw:  1.5747
+Target  (5.0, 6.9, 1.538446)
+target steering 0.019627939539572314
+Curr x:  [5.025]  Curr y:  [7.249] Curr yaw:  1.6054
+Target  (5.0, 7.5, 1.600024)
+target steering -0.006231191319179517
+Curr x:  [4.999]  Curr y:  [8.183] Curr yaw:  1.5949
+Target  (5.0, 8.5, 1.764506)
+target steering -0.01631424464343247
+Curr x:  [4.979]  Curr y:  [9.094] Curr yaw:  1.5882
+Target  (5.0, 9.5, 1.57717)
+target steering -0.02496450766007218
+Curr x:  [4.962]  Curr y:  [9.913] Curr yaw:  1.6268
+Target  (4.9, 10.3, 1.57717)
+target steering 0.004057334002903897
+Curr x:  [4.903]  Curr y:  [10.913] Curr yaw:  1.6618
+Target  (4.9, 11.3, 1.571305)
+target steering 0.009333753884452616
+Curr x:  [4.82]  Curr y:  [11.766] Curr yaw:  1.6864
+Target  (4.8, 12.1, 1.573267)
+target steering 0.004468346612923717
+Curr x:  [4.726]  Curr y:  [12.615] Curr yaw:  1.6361
+Target  (4.7, 12.9, 1.573267)
+target steering -0.025540653937551047
+Curr x:  [4.697]  Curr y:  [13.277] Curr yaw:  1.6222
+Target  (4.7, 13.7, 1.750031)
+target steering 0.03152253996212367
+Curr x:  [4.649]  Curr y:  [13.964] Curr yaw:  1.6636
+Target  (4.6, 14.3, 1.836476)
+target steering 0.03903941795082851
+Curr x:  [4.542]  Curr y:  [14.866] Curr yaw:  1.6659
+Target  (4.5, 15.3, 1.675869)
+target steering -0.03448768557725976
+Curr x:  [4.487]  Curr y:  [15.554] Curr yaw:  1.6632
+Target  (4.5, 15.9, 1.589424)
+target steering -0.002329872398837461
+Curr x:  [4.396]  Curr y:  [16.582] Curr yaw:  1.676
+Target  (4.4, 16.9, 1.581017)
+target steering -0.004766959939745356
+Curr x:  [4.31]  Curr y:  [17.39] Curr yaw:  1.6336
+Target  (4.3, 17.7, 1.579308)
+target steering -0.007984247170716783
+Curr x:  [4.247]  Curr y:  [18.476] Curr yaw:  1.6401
+Target  (4.2, 18.9, 1.662053)
+target steering 0.03764770325743692
+Curr x:  [4.182]  Curr y:  [19.231] Curr yaw:  1.6677
+Target  (4.1, 19.5, 1.575608)
+target steering -0.009232308198363673
+Curr x:  [4.111]  Curr y:  [20.016] Curr yaw:  1.6748
+Target  (4.1, 20.3, 1.579484)
+target steering 0.00609879370992744
+Curr x:  [4.002]  Curr y:  [20.94] Curr yaw:  1.8184
+Target  (4.0, 21.2, 1.947526)
+target steering 0.16298546641926628
+Curr x:  [3.582]  Curr y:  [21.919] Curr yaw:  2.1518
+Target  (3.4, 22.1, 2.190878)
+target steering 0.07313928330824258
+Curr x:  [2.917]  Curr y:  [22.74] Curr yaw:  2.4983
+Target  (2.6, 22.9, 2.798332)
+target steering 0.23862692406818176
+Curr x:  [2.007]  Curr y:  [23.146] Curr yaw:  3.1317
+Target  (1.8, 23.0, 3.098928)
+target steering 2.1196385124736337e-05
+Curr x:  [0.996]  Curr y:  [23.204] Curr yaw:  2.759
+Target  (0.7, 23.4, 2.150083)
+target steering -0.38882804061753523
+Curr x:  [0.092]  Curr y:  [23.918] Curr yaw:  1.9647
+Target  (0.6, 23.8, 1.845153)
+target steering -0.8836052159957725
+Curr x:  [-0.02]  Curr y:  [24.81] Curr yaw:  1.2557
+Target  (0.6, 23.8, 1.845153)
+target steering -0.45962681694285457
+Curr x:  [0.562]  Curr y:  [25.682] Curr yaw:  0.5055
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5217924235957708
+Curr x:  [0.567]  Curr y:  [25.696] Curr yaw:  0.4443
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5342688606276106
+Curr x:  [0.566]  Curr y:  [25.699] Curr yaw:  0.4205
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5389697697467235
+Curr x:  [0.564]  Curr y:  [25.704] Curr yaw:  0.3858
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5453604704872664
+Curr x:  [0.563]  Curr y:  [25.707] Curr yaw:  0.368
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5483983384888899
+Curr x:  [0.561]  Curr y:  [25.711] Curr yaw:  0.3355
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5535487357204851
+Curr x:  [0.56]  Curr y:  [25.715] Curr yaw:  0.3112
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5570156434244635
+Curr x:  [0.559]  Curr y:  [25.717] Curr yaw:  0.2947
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5592266887749299
+Curr x:  [0.557]  Curr y:  [25.726] Curr yaw:  0.2327
+Target  (0.6, 23.8, 1.845153)
+target steering -0.5662345580459
+Curr x:  [0.75]  Curr y:  [25.903] Curr yaw:  -1.8896
+Target  (0.6, 23.8, 1.845153)
+target steering 0.15797177095821494
+Curr x:  [0.841]  Curr y:  [25.82] Curr yaw:  -2.7361
+Target  (0.6, 23.8, 1.845153)
+target steering 0.5125478731494358
+Curr x:  [0.775]  Curr y:  [25.892] Curr yaw:  -2.0749
+Target  (0.6, 23.8, 1.845153)
+target steering 0.259445257647707
+Curr x:  [0.633]  Curr y:  [25.893] Curr yaw:  -1.084
+Target  (0.6, 23.8, 1.845153)
+target steering -0.30341949610175867
+Curr x:  [0.671]  Curr y:  [25.907] Curr yaw:  -1.3554
+Target  (0.6, 23.8, 1.845153)
+target steering -0.15888301112092523
+Curr x:  [0.622]  Curr y:  [25.887] Curr yaw:  -1.0041
+Target  (0.6, 23.8, 1.845153)
+target steering -0.34086655569995505
+Curr x:  [0.658]  Curr y:  [25.904] Curr yaw:  -1.2669
+Target  (0.6, 23.8, 1.845153)
+target steering -0.2084504286187746
+Curr x:  [0.631]  Curr y:  [25.892] Curr yaw:  -1.0745
+Target  (0.6, 23.8, 1.845153)
+target steering -0.3078392994936567
+Curr x:  [0.658]  Curr y:  [25.904] Curr yaw:  -1.2662
+Target  (0.6, 23.8, 1.845153)
+target steering -0.20886215210147663
+Curr x:  [0.592]  Curr y:  [25.862] Curr yaw:  -0.7411
+Target  (0.6, 23.8, 1.845153)
+target steering -0.44574349465190427
+Curr x:  [0.722]  Curr y:  [25.909] Curr yaw:  -1.6963
+Target  (0.6, 23.8, 1.845153)
+target steering 0.0439565159424852
