@@ -38,7 +38,6 @@ fig, ax = plt.subplots()
 im = ax.imshow(grid, cmap='viridis', vmin=0, vmax=100, interpolation='none')
 
 robot_dot = ax.scatter([],[],marker='^',s=60,c = 'red' )
-robot_dot_gt = ax.scatter([],[],marker='^',s=60,c = 'green' )
 
 # Add grid lines between cells
 ax.set_xticks(np.arange(-0.5, 200, 1), minor=True)
@@ -112,8 +111,8 @@ def main():
 
 # rate = rospy.Rate(10)
     poses_list= []
-    gt_tracker = Vicon()
-    gt_origin = gt_tracker.get_pose()
+    # gt_tracker = Vicon()
+    # gt_origin = gt_tracker.get_pose()
     # print(latest_pose, latest_lidar)
     lidar_data, raw_data = get_lidar_data("/scan")
     # print(raw_data)
@@ -129,11 +128,13 @@ def main():
             lidar_data, raw_data = get_lidar_data("/scan")
             if latest_pose is not None and raw_data is not None:
                 x, y, theta = latest_pose
+                '''
                 act_pose = gt_tracker.get_pose()
                 act_pose[0] = act_pose[0] - gt_origin[0]
                 act_pose[1] = act_pose[1] - gt_origin[1]
                 act_pose[2] = act_pose[2] - gt_origin[2]
                 x, y, theta = act_pose
+                '''
 
                 occupancy_node.update_map(x, y, theta, raw_data)
                 poses_list.append([x, y, theta])
@@ -143,14 +144,15 @@ def main():
                 row, col = occupancy_node.world_to_map(x, y)
                 iterct += 1
                 
-                map_pose = est_pose
-                row, col = occupancy_node.world_to_map(est_pose[0], est_pose[1])
-                row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
+                map_pose = latest_pose
+                row, col = occupancy_node.world_to_map(map_pose[0], map_pose[1])
+                # row_gt, col_gt = occupancy_node.world_to_map(act_pose[0], act_pose[1])
                 robot_dot.set_offsets([[col,row]])
-                robot_dot_gt.set_offsets([[col_gt,row_gt]])
+                # robot_dot_gt.set_offsets([[col_gt,row_gt]])
+                plt.pause(0.01)
 
     except KeyboardInterrupt:
-        print("xekjhfeshfljkdsljlfksjlkgslk")
+        print("intr")
     rospy.loginfo("[run_auto] Mapping ended by user → saving grid …")
     print("saving map")
     prob_map = occupancy_node.get_probability_map()

@@ -89,7 +89,7 @@ def main():
         gt_tracker = CarPoseTracker()
     else:
         from vicon_bridge import Vicon
-        # gt_tracker = Vicon()
+        gt_tracker = Vicon()
 
     # ─────────────────── Either build a map or load one ─────────────────────
     if args.skip_mapping:
@@ -104,7 +104,8 @@ def main():
         print("starting slam")
         rospy.loginfo("[run_auto] Mapping - drive the vehicle, Ctrl-C when done …")
         est_pose = [0, 0, 0]
-        # gt_origin = gt_tracker.get_pose()
+        gt_origin = gt_tracker.get_pose()
+        gt_origin[0] = -gt_origin[0]
         poses_list= []
         hz_const = 10
         iterct = 0
@@ -126,9 +127,17 @@ def main():
                 dx, dy = get_dxdy(velocity, pose_intgr.theta, dt)
                 pose_intgr.update_position(dx, dy)
                 est_pose = pose_intgr.get_pose()
-                # act_pose = gt_tracker.get_pose()
-                # act_pose = np.array(act_pose) - np.array(gt_origin)
-                print(est_pose)
+                '''
+                act_pose = gt_tracker.get_pose()
+                act_pose = np.array(act_pose) - np.array(gt_origin)
+                '''
+                act_pose = gt_tracker.get_pose()
+                act_pose[0] = -act_pose[0]
+                act_pose[0] -= gt_origin[0]
+                act_pose[1] -= gt_origin[1]
+                act_pose[2] -= gt_origin[2]
+                print("est: ", list(est_pose))
+                print("act: ", act_pose)
                 
                 pose_msg = PoseStamped()
                 pose_msg.header.stamp = rospy.Time.now()
@@ -142,10 +151,6 @@ def main():
 
 
                 '''
-                act_pose = gt_tracker.get_pose()
-                act_pose[0] -= gt_origin[0]
-                act_pose[1] -= gt_origin[1]
-                act_pose[2] -= gt_origin[2]
                 '''
                 # used_pose = est_pose
                 # poses_list.append(used_pose)
